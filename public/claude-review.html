@@ -5,125 +5,154 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AI Agents App - Claude Review Brief</title>
   <style>
-    body { font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.55; color: #111827; background: #f8fafc; margin: 0; }
-    main { max-width: 960px; margin: 0 auto; padding: 40px 20px 72px; }
-    h1 { font-size: 38px; margin: 0 0 8px; }
-    h2 { margin-top: 36px; border-top: 1px solid #dbe3ef; padding-top: 24px; }
-    h3 { margin-top: 24px; }
+    :root { color-scheme: light; --ink:#111827; --muted:#526174; --line:#dbe3ef; --card:#fff; --bg:#f8fafc; --blue:#0b65c2; --green:#047857; --amber:#92400e; --red:#b91c1c; }
+    * { box-sizing: border-box; }
+    body { font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.55; color: var(--ink); background: var(--bg); margin: 0; }
+    main { max-width: 1040px; margin: 0 auto; padding: 40px 20px 80px; }
+    h1 { font-size: clamp(32px, 5vw, 48px); line-height: 1.05; margin: 0 0 8px; letter-spacing: 0; }
+    h2 { margin-top: 36px; border-top: 1px solid var(--line); padding-top: 24px; }
+    h3 { margin-top: 22px; }
     p, li { font-size: 16px; }
     code { background: #e8eef7; padding: 2px 5px; border-radius: 4px; }
     pre { background: #111827; color: #e5e7eb; padding: 16px; overflow: auto; border-radius: 8px; }
-    .card { background: #fff; border: 1px solid #dbe3ef; border-radius: 10px; padding: 18px 20px; margin: 16px 0; }
-    .meta { color: #526174; font-size: 15px; }
-    a { color: #0b65c2; }
+    a { color: var(--blue); }
+    .meta { color: var(--muted); font-size: 15px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; margin: 16px 0; }
+    .card h3 { margin-top: 0; }
+    .ok { border-left: 5px solid var(--green); }
+    .risk { border-left: 5px solid var(--red); }
+    .watch { border-left: 5px solid var(--amber); }
+    .pill { display: inline-block; padding: 4px 9px; margin: 4px 4px 0 0; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--muted); font-size: 13px; }
+    .flow { font-weight: 800; color: #1f2937; background: #eef6ff; border: 1px solid #cfe6ff; padding: 12px; border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+    th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 10px; vertical-align: top; }
+    th { background: #eef2f7; }
   </style>
 </head>
 <body>
 <main>
+  <p class="meta">Static review page for Claude. This page is intentionally plain HTML so non-JavaScript fetchers can read it.</p>
   <h1>AI Agents App Review Brief</h1>
-  <p class="meta">Static, JavaScript-free review page for external reviewers such as Claude. The live app is a React SPA, so this page exists to provide readable context without executing client-side JavaScript.</p>
+  <p class="meta">Live app: <a href="https://ai-agents-31pz.onrender.com/">https://ai-agents-31pz.onrender.com/</a> | Updated: June 5, 2026</p>
 
-  <div class="card">
-    <p><strong>Live app:</strong> <a href="https://ai-agents-31pz.onrender.com/">https://ai-agents-31pz.onrender.com/</a></p>
-    <p><strong>GitHub repo:</strong> <a href="https://github.com/rudrapratapsinghrathore3609/Kuhu.github.io">https://github.com/rudrapratapsinghrathore3609/Kuhu.github.io</a></p>
-    <p><strong>Current goal:</strong> Build a shareable multi-agent workspace where agents can answer questions, learn reusable patterns from prompts, use connectors/sources, keep chat history, and help build or improve websites/apps.</p>
-  </div>
+  <section class="card ok">
+    <h2>What Changed Since Last Review</h2>
+    <ul>
+      <li>The interface now has a ChatGPT-like layout layer: full-width chat, slide-out Agents/History drawer, right-side Tools/Settings drawer, compact composer, and source transparency styling.</li>
+      <li>The backend now supports shared AI accounts for all signed-in users through Render environment variables.</li>
+      <li>The provider adapter now attempts fallback providers instead of collapsing into a generic server error.</li>
+      <li>Supabase now has an <code>ai_daily_usage</code> table and <code>increment_ai_daily_usage</code> function prepared for per-user daily quota tracking.</li>
+      <li>The app still needs a final integration pass to enforce the daily request limit inside <code>/api/chat/stream</code> before model calls.</li>
+    </ul>
+  </section>
 
-  <h2>Product Summary</h2>
-  <p>AI Agents is a multi-agent chat workspace. It lets a user choose specialized agents, upload files/photos, maintain conversation history, save learned memory, use AI provider accounts, inspect source trails, and ask a coder agent for app-building help. It is intended to feel closer to ChatGPT than a raw dashboard while keeping power-user tools available in a drawer or tools panel.</p>
+  <section>
+    <h2>Current Architecture</h2>
+    <div class="grid">
+      <div class="card"><h3>Frontend</h3><p>React + Vite SPA served by Express on Render. Static enhancement files are loaded from <code>/chatgpt-layout.css</code> and <code>/chatgpt-layout.js</code>.</p></div>
+      <div class="card"><h3>Backend</h3><p>Express server with authenticated API routes, streaming chat endpoint, upload handling, connectors, memory, and source trail generation.</p></div>
+      <div class="card"><h3>Database</h3><p>Supabase Auth and Postgres. User data is protected by RLS. Chats, messages, memory, uploads, connectors, and daily usage are stored per user.</p></div>
+      <div class="card"><h3>Deployment</h3><p>Render free web service. Current live URL is public, but users must sign in to use the workspace.</p></div>
+    </div>
+  </section>
 
-  <h2>Primary Agents</h2>
-  <ul>
-    <li><strong>Jarvis:</strong> Chief Supervisor and router for broad tasks.</li>
-    <li><strong>Nova:</strong> News and general knowledge agent.</li>
-    <li><strong>Phil:</strong> Market research and R&amp;D.</li>
-    <li><strong>Mastermind:</strong> Finance and stock market.</li>
-    <li><strong>Homelander:</strong> Skill learning and tracking.</li>
-    <li><strong>Noir:</strong> Studies and academics.</li>
-    <li><strong>Kuhu:</strong> Website planning/building agent with website tooling knowledge.</li>
-    <li><strong>Coder:</strong> App builder and code upgrade agent.</li>
-    <li><strong>Automate:</strong> Task automation agent.</li>
-    <li><strong>History:</strong> Historical context and explanations.</li>
-  </ul>
+  <section>
+    <h2>Shared Provider Fallback Plan</h2>
+    <p>The desired behavior is that every signed-in user can ask agents questions without individually adding API keys. The backend keeps provider keys in Render env vars and never exposes them to the browser.</p>
+    <p class="flow">Gemini primary -> Groq fallback -> OpenRouter fallback -> Together fallback -> OpenAI fallback -> optional Ollama-compatible endpoint</p>
+    <table>
+      <thead><tr><th>Provider</th><th>Env vars</th><th>Role</th><th>Risk</th></tr></thead>
+      <tbody>
+        <tr><td>Gemini</td><td><code>SHARED_GEMINI_API_KEY</code>, <code>SHARED_GEMINI_MODEL</code></td><td>Primary free/low-cost provider</td><td>Shared quota can be exhausted by multiple users.</td></tr>
+        <tr><td>Groq</td><td><code>SHARED_GROQ_API_KEY</code>, <code>SHARED_GROQ_MODEL</code></td><td>Fast fallback for open models</td><td>Free tier has rate limits.</td></tr>
+        <tr><td>OpenRouter</td><td><code>SHARED_OPENROUTER_API_KEY</code>, <code>SHARED_OPENROUTER_MODEL</code></td><td>Broad fallback/router</td><td>Model availability and free model limits vary.</td></tr>
+        <tr><td>Together</td><td><code>SHARED_TOGETHER_API_KEY</code>, <code>SHARED_TOGETHER_MODEL</code></td><td>Hosted open-source fallback</td><td>Usually paid/pay-as-you-go after credits.</td></tr>
+        <tr><td>OpenAI</td><td><code>SHARED_OPENAI_API_KEY</code>, <code>SHARED_OPENAI_MODEL</code></td><td>Premium fallback</td><td>Requires billing/credits.</td></tr>
+      </tbody>
+    </table>
+  </section>
 
-  <h2>Core Features</h2>
-  <ul>
-    <li>Supabase authentication for sign in and account creation.</li>
-    <li>Supabase-backed chat history, messages, uploads, memories, connectors, and AI accounts.</li>
-    <li>Shared AI accounts via Render environment variables, especially Gemini for free/shared online use.</li>
-    <li>Personal AI accounts saved per user inside the app.</li>
-    <li>Local Ollama support through OpenAI-compatible endpoint: <code>http://localhost:11434/v1</code>.</li>
-    <li>File/photo upload with text extraction for text files.</li>
-    <li>Source trail after answers, including active model, memory considered, and connector status.</li>
-    <li>Voice command controls and speak-answer button.</li>
-    <li>Agent collaboration/council concept for multi-agent results.</li>
-    <li>Coder agent for planning GitHub issues, app improvements, and implementation guidance.</li>
-  </ul>
+  <section class="card watch">
+    <h2>Quota Question For Claude</h2>
+    <p>If several friends use the same shared Gemini key, all users consume the same project quota. When the Gemini key hits rate limits or quota, the current adapter should try Groq/OpenRouter/Together/OpenAI if configured. If no fallback is configured, users receive a readable setup diagnostic instead of a blank/server error.</p>
+    <p><strong>Please review:</strong> Is this fallback order sensible for a small public multi-agent workspace? Would you recommend a different order, a circuit breaker, or provider health cache?</p>
+  </section>
 
-  <h2>Current Architecture</h2>
-  <ul>
-    <li><strong>Frontend:</strong> React + Vite.</li>
-    <li><strong>Backend:</strong> Express server running with <code>tsx src/server/index.ts</code>.</li>
-    <li><strong>Database/Auth:</strong> Supabase.</li>
-    <li><strong>Deployment:</strong> Render free web service.</li>
-    <li><strong>Repository:</strong> GitHub repo <code>rudrapratapsinghrathore3609/Kuhu.github.io</code>.</li>
-    <li><strong>AI providers:</strong> OpenAI-compatible API, Gemini, Anthropic/Claude, and local Ollama compatible mode.</li>
-  </ul>
+  <section>
+    <h2>Daily Usage Guard</h2>
+    <p>Supabase migration already added:</p>
+    <pre><code>public.ai_daily_usage(user_id, usage_date, request_count, token_estimate)
+public.increment_ai_daily_usage(target_user_id, request_increment, token_increment)</code></pre>
+    <p>The next implementation should call this function before each model request and block or downgrade requests when limits are exceeded.</p>
+    <h3>Proposed policy</h3>
+    <ul>
+      <li>Free/shared users: 30 agent requests per day.</li>
+      <li>Soft token estimate: 60,000 characters per day, approximate until real token usage is tracked.</li>
+      <li>When a user reaches the limit: allow them to add their own key or try again tomorrow.</li>
+      <li>Admin/owner email can have a higher limit through an env allowlist.</li>
+    </ul>
+  </section>
 
-  <h2>Important Implementation Notes</h2>
-  <ul>
-    <li>The React app requires JavaScript, so simple fetchers only see an empty HTML shell. This page is static to solve that review problem.</li>
-    <li>Render free tier is too small for hosting meaningful local LLMs. Online shared use should use Gemini or another hosted provider.</li>
-    <li>Ollama works locally on the owner laptop but cannot be used by deployed Render unless exposed through a protected proxy/tunnel/VPN.</li>
-    <li>Raw Ollama should not be exposed publicly without authentication, rate limiting, HTTPS, and request filtering.</li>
-    <li>Shared AI provider accounts should be configured as Render environment variables, not typed by every user.</li>
-  </ul>
+  <section>
+    <h2>Current UX Target</h2>
+    <pre><code>[Agents dropdown]    AI Agents                         [History] [Settings]
 
-  <h2>Known Problems / Recent Fixes</h2>
-  <ul>
-    <li>Users previously saw <code>Invalid API key</code> during sign-up because Supabase public/server keys were misconfigured.</li>
-    <li>Users previously saw only Jarvis or missing agents because server routes depended too much on a failing service-role path.</li>
-    <li>Server now returns built-in fallback agents and uses the signed-in user session for normal data routes.</li>
-    <li>AI account sharing is now designed around environment variables such as <code>SHARED_GEMINI_API_KEY</code>.</li>
-    <li>Raw server errors have been improved, but provider failures still need better UI recovery.</li>
-  </ul>
+Full-width chat area
+Assistant answer
+Via: Jarvis -> Gemini -> Groq fallback -> 3 sources [expand]
+Source cards with links
 
-  <h2>Requested Review From Claude</h2>
-  <ol>
-    <li>Identify the top UX problems in this app concept and current flow.</li>
-    <li>Suggest a better ChatGPT-like layout for agents, history, tools, and connectors.</li>
-    <li>Recommend how the right-side tools/connectors panel should behave.</li>
-    <li>Improve the history area so saved conversations are easy to find and not visually cramped.</li>
-    <li>Suggest how multi-agent collaboration should be represented in the UI.</li>
-    <li>Evaluate the memory/learning model: how should agents learn from prompts without over-memorizing?</li>
-    <li>Recommend source citation/source trail behavior after every answer, including link display and trust indicators.</li>
-    <li>List security risks around shared AI accounts, Supabase keys, Ollama exposure, and uploaded files.</li>
-    <li>Recommend a practical free/low-cost deployment path for a two-person team.</li>
-    <li>Give a prioritized roadmap with quick wins, medium features, and long-term architecture improvements.</li>
-  </ol>
+[Attach] [Voice] [Type a message...] [Send]</code></pre>
+    <p>The Tools drawer should organize: Connectors, Memory, GitHub, Deployment, File Library, Automation, AI Accounts.</p>
+  </section>
 
-  <h2>Current Desired Roadmap</h2>
-  <ul>
-    <li>Make login smoother and clearer.</li>
-    <li>Make chat history always visible and recoverable.</li>
-    <li>Move tools/connectors/source checks into a hideable drawer.</li>
-    <li>Improve mobile layout with bottom tabs.</li>
-    <li>Make agents interact with each other for better results.</li>
-    <li>Improve voice command accuracy and avoid repeated partial transcripts.</li>
-    <li>Add better source links after every response.</li>
-    <li>Add Coder safety gates before file edits, commands, or deploy actions.</li>
-    <li>Add shared team AI accounts so all users can use the same configured models.</li>
-    <li>Allow local Ollama for private use and hosted Gemini for shared online use.</li>
-  </ul>
+  <section class="card risk">
+    <h2>Known Risks</h2>
+    <ul>
+      <li><strong>Shared provider abuse:</strong> One user can consume the shared quota unless daily limits are enforced in chat route.</li>
+      <li><strong>Provider health:</strong> Repeatedly trying a failed provider can slow every response. A short-lived failure cache may be needed.</li>
+      <li><strong>Source quality:</strong> Source trail exists, but source cards still need date, domain type, and excerpt quality scoring.</li>
+      <li><strong>Coder safety:</strong> Coder agent still needs explicit Accept/Reject confirmation for file writes and shell commands before it becomes autonomous.</li>
+      <li><strong>Render free tier:</strong> Cold starts will delay first response. Frontend could move to Cloudflare Pages while keeping Express API on Render.</li>
+    </ul>
+  </section>
 
-  <h2>Suggested Claude Output Format</h2>
-  <pre>1. Executive summary
-2. Top 10 issues, ranked
-3. UX redesign recommendations
-4. Architecture/security recommendations
-5. Multi-agent and memory recommendations
-6. Deployment/provider recommendations
-7. 2-week implementation plan</pre>
+  <section>
+    <h2>Questions For Claude</h2>
+    <ol>
+      <li>What is the best free/reliable fallback order for a public AI agent app: Gemini, Groq, OpenRouter, Together, OpenAI?</li>
+      <li>Should daily limits be request-based, token-based, or both?</li>
+      <li>What should the app do when all providers fail: queue, downgrade, ask user to bring key, or show cached answer?</li>
+      <li>How would you design a provider health circuit breaker for a small Express app?</li>
+      <li>What is the minimum safe confirmation gate for the Coder agent before it can edit files?</li>
+      <li>What should be added to source cards so users can judge trust quickly?</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Relevant Files</h2>
+    <ul>
+      <li><code>src/server/providers.ts</code> - provider routing/fallback adapter.</li>
+      <li><code>src/server/index.ts</code> - authenticated routes, chat stream, accounts, connectors, memory.</li>
+      <li><code>src/client/main.tsx</code> - main React UI.</li>
+      <li><code>public/chatgpt-layout.css</code> and <code>public/chatgpt-layout.js</code> - current UI enhancement layer.</li>
+      <li><code>supabase/shared-ai-usage-limits.sql</code> - daily usage tracking migration.</li>
+    </ul>
+  </section>
+
+  <section class="card ok">
+    <h2>Desired Output From Claude</h2>
+    <p>Please return a prioritized implementation plan with concrete code-level recommendations for:</p>
+    <div>
+      <span class="pill">provider fallback order</span>
+      <span class="pill">daily quota enforcement</span>
+      <span class="pill">provider health cache</span>
+      <span class="pill">source quality cards</span>
+      <span class="pill">Coder safety gate</span>
+      <span class="pill">deployment reliability</span>
+    </div>
+  </section>
 </main>
 </body>
 </html>
