@@ -9,10 +9,19 @@ async function authHeaders() {
   return { Authorization: `Bearer ${token}` };
 }
 
+async function readError(res: Response) {
+  const text = await res.text();
+  if (res.status === 401) {
+    await supabase.auth.signOut();
+    throw new Error("Your sign-in session expired. Please sign in again.");
+  }
+  throw new Error(text || `${res.status} ${res.statusText}`);
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
   const headers = await authHeaders();
-  const res = await fetch(`${API_URL}${path}`, { headers });
-  if (!res.ok) throw new Error(await res.text());
+  const res = await fetch(`${API_URL}${path}`, { headers, cache: "no-store" });
+  if (!res.ok) await readError(res);
   return res.json();
 }
 
@@ -23,21 +32,21 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
     headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) await readError(res);
   return res.json();
 }
 
 export async function apiDelete<T>(path: string): Promise<T> {
   const headers = await authHeaders();
   const res = await fetch(`${API_URL}${path}`, { method: "DELETE", headers });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) await readError(res);
   return res.json();
 }
 
 export async function exportConversation(id: string) {
   const headers = await authHeaders();
-  const res = await fetch(`${API_URL}/api/export/${id}`, { headers });
-  if (!res.ok) throw new Error(await res.text());
+  const res = await fetch(`${API_URL}/api/export/${id}`, { headers, cache: "no-store" });
+  if (!res.ok) await readError(res);
   return res.text();
 }
 
@@ -48,7 +57,7 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
     headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) await readError(res);
   return res.json();
 }
 
@@ -64,7 +73,7 @@ export async function uploadFiles(files: File[], conversationId?: string) {
     body: form
   });
 
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) await readError(res);
   return res.json() as Promise<{ uploads: Upload[] }>;
 }
 
@@ -85,7 +94,8 @@ export async function streamChat(params: {
     body: JSON.stringify(params)
   });
 
-  if (!res.ok || !res.body) throw new Error(await res.text());
+  if (!res.ok) await readError(res);
+  if (!res.body) throw new Error("The server did not return a stream.");
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
