@@ -1,23 +1,27 @@
 (() => {
+  const state = { scheduled: false, lastTick: 0 };
   const store = {
     get(key, fallback) {
-      try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); } catch { return fallback; }
+      try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); }
+      catch { return fallback; }
     },
     set(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
   };
 
   const textOf = node => (node?.textContent || "").trim();
-  const byText = (selector, needle) => Array.from(document.querySelectorAll(selector)).find(node => textOf(node).toLowerCase().includes(needle.toLowerCase()));
-  const buttonByText = text => Array.from(document.querySelectorAll("button")).find(button => textOf(button).toLowerCase() === text.toLowerCase());
+  const qs = (selector, root = document) => root.querySelector(selector);
+  const qsa = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+  const byText = (selector, needle) => qsa(selector).find(node => textOf(node).toLowerCase().includes(needle.toLowerCase()));
+  const buttonByText = text => qsa("button").find(button => textOf(button).toLowerCase() === text.toLowerCase());
 
   function selectedAgentName() {
-    const select = document.querySelector(".agent-switcher select");
+    const select = qs(".agent-switcher select");
     if (select instanceof HTMLSelectElement) return select.selectedOptions[0]?.textContent?.split(" - ")[0]?.trim() || "Agent";
-    return textOf(document.querySelector(".agent.active strong")) || "Agent";
+    return textOf(qs(".agent.active strong")) || "Agent";
   }
 
   function setComposer(text) {
-    const textarea = document.querySelector(".composer textarea");
+    const textarea = qs(".composer textarea");
     if (!(textarea instanceof HTMLTextAreaElement)) return;
     const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
     setter?.call(textarea, text);
@@ -26,19 +30,14 @@
   }
 
   function openToolsAndScroll(title) {
-    const tools = buttonByText("Tools") || document.querySelector("button[aria-label*='settings' i]");
-    tools?.click();
-    setTimeout(() => byText(".right-panel .panel-card h2", title)?.scrollIntoView({ behavior: "smooth", block: "start" }), 180);
+    (buttonByText("Tools") || buttonByText("Settings") || qs("button[aria-label*='settings' i]"))?.click();
+    setTimeout(() => byText(".right-panel .panel-card h2", title)?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
   }
 
   function ensureHeaderButtons() {
-    const actions = document.querySelector(".top-actions");
-    if (!actions || actions.querySelector("[data-advanced-button='workspace']")) return;
-    [
-      ["Workspace", "Shared Workspaces"],
-      ["Tasks", "Scheduled Tasks"],
-      ["Files", "RAG Files"]
-    ].reverse().forEach(([label, target]) => {
+    const actions = qs(".top-actions");
+    if (!actions || qs("[data-advanced-button='workspace']", actions)) return;
+    [["Files", "RAG Files"], ["Tasks", "Scheduled Tasks"], ["Workspace", "Shared Workspaces"]].forEach(([label, target]) => {
       const button = document.createElement("button");
       button.type = "button";
       button.dataset.advancedButton = label.toLowerCase();
@@ -49,17 +48,18 @@
   }
 
   function enhanceBubbles() {
-    document.querySelectorAll(".bubble:not(.user)").forEach((bubble, index) => {
-      if (bubble.dataset.performanceReady) return;
+    qsa(".bubble:not(.user):not([data-performance-ready])").slice(-8).forEach(bubble => {
+      if (!(bubble instanceof HTMLElement)) return;
       bubble.dataset.performanceReady = "1";
       const bar = document.createElement("div");
       bar.className = "advanced-feedback-bar";
       bar.innerHTML = `<span>Rate this answer</span><button type="button" data-rate="1">Good</button><button type="button" data-rate="-1">Bad</button>`;
-      bar.querySelectorAll("button[data-rate]").forEach(button => button.addEventListener("click", () => {
+      qsa("button[data-rate]", bar).forEach(button => button.addEventListener("click", () => {
         const rating = Number(button.dataset.rate);
         const items = store.get("aiAgentsFeedback", []);
         items.unshift({ id: crypto.randomUUID(), rating, agent: selectedAgentName(), createdAt: new Date().toISOString(), excerpt: textOf(bubble).slice(0, 240) });
         store.set("aiAgentsFeedback", items.slice(0, 200));
+        bar.classList.remove("good", "bad");
         bar.classList.add(rating > 0 ? "good" : "bad");
         renderPerformancePanels();
       }));
@@ -68,156 +68,116 @@
   }
 
   function ensureAdvancedPanels() {
-    const panel = document.querySelector(".right-panel");
-    if (!panel) return;
+    const panel = qs(".right-panel");
+    if (!panel || panel.dataset.advancedPanelsDone) return;
     ensureWorkspacePanel(panel);
     ensurePerformancePanel(panel);
     ensureSchedulePanel(panel);
     ensureRagPanel(panel);
+    panel.dataset.advancedPanelsDone = "1";
   }
 
   function insertPanel(panel, card) {
-    const firstRealCard = panel.querySelector(".panel-card");
-    panel.insertBefore(card, firstRealCard || null);
+    const firstCard = qs(".panel-card", panel);
+    panel.insertBefore(card, firstCard || null);
   }
 
   function ensureWorkspacePanel(panel) {
-    if (panel.querySelector(".advanced-workspace-panel")) return;
+    if (qs(".advanced-workspace-panel", panel)) return;
+    const members = store.get("aiAgentsWorkspaceMembers", [{ email: "You", role: "Owner" }]);
     const card = document.createElement("section");
     card.className = "panel-card advanced-workspace-panel";
-    card.innerHTML = `
-      <h2>Shared Workspaces</h2>
-      <p class="panel-help">Create a shared project space for partners. Supabase tables and RLS are ready; this panel keeps drafts visible until server sync is wired.</p>
-      <div class="advanced-grid"><input data-name placeholder="Workspace name" value="AI Agents Team"><button type="button" data-create>Create</button></div>
-      <div class="advanced-grid"><input data-email placeholder="Partner email"><select data-role><option>admin</option><option selected>editor</option><option>viewer</option></select><button type="button" data-invite>Invite</button></div>
-      <div class="advanced-list" data-list></div>
-    `;
+    card.innerHTML = `<h2>Shared Workspaces</h2><p class="panel-help">Shared chats, files, and agents for your team.</p><div class="advanced-workspace-list"></div><div class="advanced-inline-form"><input type="email" placeholder="partner@email.com"><select><option>Admin</option><option>Member</option><option>Viewer</option></select><button type="button">Add</button></div>`;
     insertPanel(panel, card);
-    card.querySelector("[data-create]")?.addEventListener("click", () => {
-      const name = card.querySelector("[data-name]")?.value?.trim() || "Shared workspace";
-      const items = store.get("aiAgentsWorkspaces", []);
-      items.unshift({ id: crypto.randomUUID(), name, members: [], createdAt: new Date().toISOString() });
-      store.set("aiAgentsWorkspaces", items);
-      renderWorkspace(card);
-    });
-    card.querySelector("[data-invite]")?.addEventListener("click", () => {
-      const email = card.querySelector("[data-email]")?.value?.trim();
+    const render = () => {
+      const list = qs(".advanced-workspace-list", card);
+      list.innerHTML = members.map((member, index) => `<div class="advanced-row"><span>${escapeHtml(member.email)}</span><b>${escapeHtml(member.role)}</b>${index ? `<button type="button" data-remove="${index}">Remove</button>` : ""}</div>`).join("");
+      qsa("[data-remove]", list).forEach(button => button.addEventListener("click", () => {
+        members.splice(Number(button.dataset.remove), 1);
+        store.set("aiAgentsWorkspaceMembers", members);
+        render();
+      }));
+    };
+    qs(".advanced-inline-form button", card)?.addEventListener("click", () => {
+      const email = qs("input", card)?.value.trim();
+      const role = qs("select", card)?.value || "Member";
       if (!email) return;
-      const role = card.querySelector("[data-role]")?.value || "editor";
-      const items = store.get("aiAgentsWorkspaces", []);
-      if (!items.length) items.push({ id: crypto.randomUUID(), name: "AI Agents Team", members: [], createdAt: new Date().toISOString() });
-      items[0].members.unshift({ email, role, status: "invited", createdAt: new Date().toISOString() });
-      store.set("aiAgentsWorkspaces", items);
-      card.querySelector("[data-email]").value = "";
-      renderWorkspace(card);
+      members.push({ email, role });
+      store.set("aiAgentsWorkspaceMembers", members);
+      qs("input", card).value = "";
+      render();
     });
-    renderWorkspace(card);
-  }
-
-  function renderWorkspace(card) {
-    const list = card.querySelector("[data-list]");
-    const items = store.get("aiAgentsWorkspaces", []);
-    list.innerHTML = items.length ? items.map(workspace => `
-      <div class="advanced-row"><strong>${escapeHtml(workspace.name)}</strong><span>${workspace.members.length} member(s)</span>${workspace.members.map(member => `<small>${escapeHtml(member.email)} - ${escapeHtml(member.role)} - ${escapeHtml(member.status)}</small>`).join("")}</div>
-    `).join("") : `<p class="panel-help">No shared workspace draft yet.</p>`;
+    render();
   }
 
   function ensurePerformancePanel(panel) {
-    if (panel.querySelector(".advanced-performance-panel")) return;
+    if (qs(".advanced-performance-panel", panel)) return;
     const card = document.createElement("section");
     card.className = "panel-card advanced-performance-panel";
-    card.innerHTML = `
-      <h2>Agent Performance</h2>
-      <p class="panel-help">Thumbs up/down per response. This helps you see which agents are strongest by topic.</p>
-      <div class="advanced-list" data-performance></div>
-    `;
+    card.innerHTML = `<h2>Agent Performance</h2><p class="panel-help">Ratings help route future work to the strongest agent.</p><div class="advanced-performance-list"></div>`;
     insertPanel(panel, card);
     renderPerformancePanels();
   }
 
   function renderPerformancePanels() {
-    document.querySelectorAll(".advanced-performance-panel [data-performance]").forEach(list => {
-      const items = store.get("aiAgentsFeedback", []);
-      const byAgent = items.reduce((acc, item) => {
-        acc[item.agent] ||= { good: 0, bad: 0 };
-        if (item.rating > 0) acc[item.agent].good += 1;
-        else acc[item.agent].bad += 1;
-        return acc;
-      }, {});
-      const rows = Object.entries(byAgent);
-      list.innerHTML = rows.length ? rows.map(([agent, score]) => `
-        <div class="advanced-row"><strong>${escapeHtml(agent)}</strong><span>${score.good} good / ${score.bad} bad</span><meter min="0" max="100" value="${Math.round((score.good / Math.max(1, score.good + score.bad)) * 100)}"></meter></div>
-      `).join("") : `<p class="panel-help">No ratings yet. Use Good/Bad under an agent response.</p>`;
+    const feedback = store.get("aiAgentsFeedback", []);
+    const totals = feedback.reduce((acc, item) => {
+      acc[item.agent] ||= { good: 0, bad: 0 };
+      item.rating > 0 ? acc[item.agent].good++ : acc[item.agent].bad++;
+      return acc;
+    }, {});
+    qsa(".advanced-performance-list").forEach(list => {
+      const rows = Object.entries(totals).sort((a, b) => (b[1].good - b[1].bad) - (a[1].good - a[1].bad));
+      list.innerHTML = rows.length
+        ? rows.map(([agent, score]) => `<div class="advanced-row"><span>${escapeHtml(agent)}</span><b>${score.good} good / ${score.bad} bad</b></div>`).join("")
+        : `<p class="panel-help">No ratings yet.</p>`;
     });
   }
 
   function ensureSchedulePanel(panel) {
-    if (panel.querySelector(".advanced-schedule-panel")) return;
+    if (qs(".advanced-schedule-panel", panel)) return;
     const card = document.createElement("section");
     card.className = "panel-card advanced-schedule-panel";
-    card.innerHTML = `
-      <h2>Scheduled Tasks</h2>
-      <p class="panel-help">Draft recurring agent jobs now. A Render Cron or Supabase Edge Function can execute these later.</p>
-      <input data-title placeholder="Task title, e.g. Daily market briefing">
-      <textarea data-prompt placeholder="Prompt to run on schedule"></textarea>
-      <div class="advanced-grid"><select data-schedule><option>Every morning</option><option>Every evening</option><option>Weekly</option><option>Manual only</option></select><button type="button" data-add>Add task</button></div>
-      <div class="advanced-list" data-list></div>
-    `;
+    card.innerHTML = `<h2>Scheduled Tasks</h2><p class="panel-help">Draft repeatable agent jobs before wiring Render Cron or Supabase Edge Functions.</p><div class="advanced-task-list"></div><div class="advanced-inline-form"><input placeholder="Daily market briefing"><select><option>Daily</option><option>Weekly</option><option>Manual</option></select><button type="button">Add</button></div>`;
     insertPanel(panel, card);
-    card.querySelector("[data-add]")?.addEventListener("click", () => {
-      const title = card.querySelector("[data-title]")?.value?.trim();
-      const prompt = card.querySelector("[data-prompt]")?.value?.trim();
-      if (!title || !prompt) return;
-      const items = store.get("aiAgentsScheduledTasks", []);
-      items.unshift({ id: crypto.randomUUID(), title, prompt, agent: selectedAgentName(), schedule: card.querySelector("[data-schedule]")?.value || "Manual only", enabled: true, createdAt: new Date().toISOString() });
-      store.set("aiAgentsScheduledTasks", items);
-      card.querySelector("[data-title]").value = "";
-      card.querySelector("[data-prompt]").value = "";
-      renderSchedules(card);
+    renderTasks(card);
+    qs(".advanced-inline-form button", card)?.addEventListener("click", () => {
+      const title = qs("input", card)?.value.trim();
+      const cadence = qs("select", card)?.value || "Manual";
+      if (!title) return;
+      const tasks = store.get("aiAgentsScheduledTasks", []);
+      tasks.unshift({ id: crypto.randomUUID(), title, cadence, agent: selectedAgentName(), enabled: true });
+      store.set("aiAgentsScheduledTasks", tasks);
+      qs("input", card).value = "";
+      renderTasks(card);
     });
-    renderSchedules(card);
   }
 
-  function renderSchedules(card) {
-    const list = card.querySelector("[data-list]");
-    const items = store.get("aiAgentsScheduledTasks", []);
-    list.innerHTML = items.length ? items.map(item => `
-      <div class="advanced-row" data-id="${item.id}"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.agent)} - ${escapeHtml(item.schedule)}</span><small>${escapeHtml(item.prompt)}</small><button type="button" data-run>Run now</button></div>
-    `).join("") : `<p class="panel-help">No scheduled tasks yet.</p>`;
-    list.querySelectorAll("[data-run]").forEach(button => button.addEventListener("click", () => {
+  function renderTasks(card) {
+    const list = qs(".advanced-task-list", card);
+    const tasks = store.get("aiAgentsScheduledTasks", []);
+    list.innerHTML = tasks.length
+      ? tasks.map(task => `<div class="advanced-row" data-id="${task.id}"><span>${escapeHtml(task.title)}</span><b>${escapeHtml(task.cadence)} - ${escapeHtml(task.agent)}</b><button type="button">Remove</button></div>`).join("")
+      : `<p class="panel-help">No scheduled task drafts yet.</p>`;
+    qsa("button", list).forEach(button => button.addEventListener("click", () => {
       const id = button.closest("[data-id]")?.dataset.id;
-      const item = store.get("aiAgentsScheduledTasks", []).find(task => task.id === id);
-      if (item) setComposer(`[Scheduled task: ${item.title}]\n${item.prompt}`);
+      store.set("aiAgentsScheduledTasks", tasks.filter(task => task.id !== id));
+      renderTasks(card);
     }));
   }
 
   function ensureRagPanel(panel) {
-    if (panel.querySelector(".advanced-rag-panel")) return;
+    if (qs(".advanced-rag-panel", panel)) return;
     const card = document.createElement("section");
     card.className = "panel-card advanced-rag-panel";
-    card.innerHTML = `
-      <h2>RAG Files</h2>
-      <p class="panel-help">Search your uploaded files before answering. Database tables are ready for document chunks.</p>
-      <div class="advanced-grid"><input data-query placeholder="Search my files for..."><button type="button" data-search>Search</button></div>
-      <div class="advanced-list" data-results></div>
-    `;
+    card.innerHTML = `<h2>RAG Files</h2><p class="panel-help">Choose whether uploaded knowledge should be searched before answers.</p><label class="advanced-check"><input type="checkbox" id="advanced-rag-toggle"> Search my uploaded files first</label><button type="button">Ask using files</button>`;
     insertPanel(panel, card);
-    card.querySelector("[data-search]")?.addEventListener("click", async () => {
-      const query = card.querySelector("[data-query]")?.value?.trim();
-      const results = card.querySelector("[data-results]");
-      if (!query) return;
-      results.innerHTML = `<p class="panel-help">Searching file memory...</p>`;
-      try {
-        const response = await fetch(`/api/rag?q=${encodeURIComponent(query)}`);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-        const chunks = data.results || [];
-        results.innerHTML = chunks.length ? chunks.map(chunk => `<div class="advanced-row"><strong>File match</strong><span>${escapeHtml(chunk.content || chunk.body || "")}</span></div>`).join("") : `<p class="panel-help">No file matches yet.</p>`;
-      } catch {
-        results.innerHTML = `<div class="advanced-row"><strong>Server RAG route pending</strong><span>Use this prompt instead: Search my uploaded files for ${escapeHtml(query)} and answer with sources.</span><button type="button" data-use>Use prompt</button></div>`;
-        results.querySelector("[data-use]")?.addEventListener("click", () => setComposer(`Search my uploaded files for: ${query}\n\nUse any uploaded file context and cite the file names you used.`));
-      }
-    });
+    const input = qs("#advanced-rag-toggle", card);
+    if (input instanceof HTMLInputElement) {
+      input.checked = store.get("aiAgentsUseRag", false);
+      input.addEventListener("change", () => store.set("aiAgentsUseRag", input.checked));
+    }
+    qs("button", card)?.addEventListener("click", () => setComposer("Use my uploaded files as the main context, cite what you used, and answer this: "));
   }
 
   function escapeHtml(value) {
@@ -231,8 +191,19 @@
     ensureAdvancedPanels();
   }
 
-  const observer = new MutationObserver(tick);
-  observer.observe(document.documentElement, { childList: true, subtree: true });
-  window.addEventListener("load", tick);
-  setInterval(tick, 1600);
+  function schedule() {
+    const now = Date.now();
+    if (state.scheduled || now - state.lastTick < 220) return;
+    state.scheduled = true;
+    requestAnimationFrame(() => {
+      state.scheduled = false;
+      state.lastTick = Date.now();
+      tick();
+    });
+  }
+
+  window.addEventListener("load", schedule);
+  window.addEventListener("focus", schedule);
+  const root = document.getElementById("root") || document.body;
+  new MutationObserver(schedule).observe(root, { childList: true, subtree: true });
 })();
