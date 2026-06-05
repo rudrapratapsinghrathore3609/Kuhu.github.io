@@ -1,0 +1,144 @@
+body.workflow-upgrades .workflow-route-hint,
+body.workflow-upgrades .workflow-team-plan,
+body.workflow-upgrades .workflow-handoff {
+  border: 1px solid rgba(121, 184, 255, .34);
+  background: linear-gradient(135deg, rgba(28, 42, 59, .96), rgba(18, 22, 29, .96));
+  border-radius: 10px;
+  padding: 12px;
+  display: grid;
+  gap: 9px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .18);
+}
+
+body.workflow-upgrades .workflow-route-hint[hidden] {
+  display: none;
+}
+
+body.workflow-upgrades .workflow-route-hint {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  border-color: rgba(88, 214, 163, .38);
+  background: rgba(18, 38, 31, .9);
+}
+
+body.workflow-upgrades .workflow-route-hint span,
+body.workflow-upgrades .workflow-team-plan strong,
+body.workflow-upgrades .workflow-handoff strong {
+  font-size: 13px;
+  color: var(--text, #f5f7fb);
+}
+
+body.workflow-upgrades .workflow-route-hint b {
+  color: var(--green, #58d6a3);
+}
+
+body.workflow-upgrades .workflow-team-plan span,
+body.workflow-upgrades .workflow-handoff span,
+body.workflow-upgrades .workflow-github-sync span {
+  color: var(--muted, #a4b0c0);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+body.workflow-upgrades .workflow-team-plan textarea {
+  min-height: 86px;
+  resize: vertical;
+  line-height: 1.4;
+  background: #0f141b;
+}
+
+body.workflow-upgrades .workflow-actions,
+body.workflow-upgrades .workflow-handoff div,
+body.workflow-upgrades .workflow-coder-change div,
+body.workflow-upgrades .workflow-github-sync {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+body.workflow-upgrades .workflow-route-hint button,
+body.workflow-upgrades .workflow-team-plan button,
+body.workflow-upgrades .workflow-handoff button,
+body.workflow-upgrades .workflow-coder-panel button,
+body.workflow-upgrades .workflow-github-sync button {
+  padding: 7px 10px;
+  font-size: 12px;
+  min-height: 0;
+}
+
+body.workflow-upgrades .workflow-memory-panel {
+  border-color: rgba(88, 214, 163, .38);
+  background: linear-gradient(180deg, rgba(19, 38, 31, .96), rgba(24, 29, 38, .96));
+}
+
+body.workflow-upgrades .workflow-coder-panel {
+  border-color: rgba(245, 198, 106, .38);
+  background: linear-gradient(180deg, rgba(37, 31, 21, .96), rgba(24, 29, 38, .96));
+}
+
+body.workflow-upgrades .workflow-coder-list {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+body.workflow-upgrades .workflow-coder-change {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line-soft, #252b35);
+  border-radius: 8px;
+  padding: 10px;
+  background: #12161d;
+}
+
+body.workflow-upgrades .workflow-coder-change strong {
+  font-size: 13px;
+}
+
+body.workflow-upgrades .workflow-coder-change span {
+  color: var(--muted, #a4b0c0);
+  font-size: 12px;
+}
+
+body.workflow-upgrades .workflow-coder-change pre {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--line-soft, #252b35);
+  border-radius: 8px;
+  background: #0d1015;
+  color: #d7e7ff;
+  padding: 10px;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+body.workflow-upgrades .workflow-coder-change.accepted {
+  border-color: rgba(88, 214, 163, .7);
+}
+
+body.workflow-upgrades .workflow-coder-change.rejected {
+  border-color: rgba(255, 141, 141, .7);
+  opacity: .82;
+}
+
+body.workflow-upgrades .workflow-github-sync {
+  justify-content: space-between;
+  border: 1px dashed rgba(121, 184, 255, .34);
+  border-radius: 8px;
+  padding: 9px;
+  margin: 0 0 10px;
+  background: rgba(18, 24, 34, .72);
+}
+
+body.workflow-upgrades .top-actions [data-workflow-button] {
+  background: #182233;
+  border-color: rgba(121, 184, 255, .32);
+}
+
+@media (max-width: 620px) {
+  body.workflow-upgrades .workflow-route-hint {
+    grid-template-columns: 1fr;
+  }
+}
