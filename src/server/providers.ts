@@ -22,6 +22,22 @@ export function createOpenAICompatibleClient(account: Account) {
 }
 
 export async function* streamModel(account: Account, messages: ChatMessage[]) {
+  const attempts = uniqueAccounts([account, ...envFallbackAccounts(account)]).filter(isUsableAccount);
+  const failures: string[] = [];
+
+  for (const candidate of attempts) {
+    try {
+      yield* streamSingleProvider(candidate, messages);
+      return;
+    } catch (error) {
+      failures.push(`${candidate.label || candidate.provider}: ${friendlyProviderError(error)}`);
+    }
+  }
+
+  yield providerSetupMessage(attempts, failures);
+}
+
+async function* streamSingleProvider(account: Account, messages: ChatMessage[]) {
   if (account.provider === "anthropic" || account.provider === "claude") {
     yield* streamAnthropic(account, messages);
     return;
@@ -134,7 +150,7 @@ async function* streamGemini(account: Account, messages: ChatMessage[]) {
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: stringifyContent(system ?? "") }] },
       contents: contents.length ? contents : [{ role: "user", parts: [{ text: "Hello" }] }],
-      generationConfig: { temperature: 0.7, maxOutputTokens: 4096 }
+      generationConfig: { temperature: 0.7, maxOutputTokens: 2048 }
     })
   });
 
@@ -150,8 +166,112 @@ async function* streamGemini(account: Account, messages: ChatMessage[]) {
 
   const finishReason = candidate?.finishReason;
   if (finishReason && finishReason !== "STOP") {
-    yield `\n\n[Model stopped early: ${finishReason}. Ask me to continue, or switch to Ollama/OpenAI if this keeps happening.]`;
+    yield `\n\n[Model stopped early: ${finishReason}. Ask me to continue, or switch accounts if this keeps happening.]`;
   }
+}
+
+function envFallbackAccounts(primary: Account): Account[] {
+  const accounts: Account[] = [];
+  const geminiKey = firstEnv("SHARED_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_GEMINI_API_KEY", "GOOGLE_API_KEY");
+  if (geminiKey) {
+    accounts.push({
+      id: "shared-gemini-fallback",
+      label: "Shared Gemini",
+      provider: "gemini",
+      base_url: firstEnv("SHARED_GEMINI_BASE_URL") || "https://generativelanguage.googleapis.com/v1beta",
+      model: firstEnv("SHARED_GEMINI_MODEL") || "gemini-2.5-flash",
+      api_key_encrypted: geminiKey
+    });
+  }
+
+  const openaiKey = firstEnv("SHARED_OPENAI_API_KEY", "OPENAI_API_KEY", "DEFAULT_OPENAI_API_KEY", "DEFAULT_API_KEY");
+  if (openaiKey) {
+    accounts.push({
+      id: "shared-openai-fallback",
+      label: "Shared OpenAI",
+      provider: "openai",
+      base_url: firstEnv("SHARED_OPENAI_BASE_URL", "DEFAULT_OPENAI_COMPAT_BASE_URL") || "https://api.openai.com/v1",
+      model: firstEnv("SHARED_OPENAI_MODEL", "DEFAULT_MODEL") || "gpt-4.1-mini",
+      api_key_encrypted: openaiKey
+    });
+  }
+
+  const ollamaBaseUrl = firstEnv("SHARED_OLLAMA_BASE_URL", "OLLAMA_BASE_URL");
+  if (ollamaBaseUrl) {
+    accounts.push({
+      id: "shared-ollama-fallback",
+      label: "Shared Ollama",
+      provider: "compatible",
+      base_url: ollamaBaseUrl,
+      model: firstEnv("SHARED_OLLAMA_MODEL", "OLLAMA_MODEL") || "llama3.1",
+      api_key_encrypted: firstEnv("SHARED_OLLAMA_API_KEY", "OLLAMA_API_KEY") || "ollama"
+    });
+  }
+
+  return accounts.filter(candidate => candidate.provider !== primary.provider || candidate.base_url !== primary.base_url || candidate.model !== primary.model);
+}
+
+function uniqueAccounts(accounts: Account[]) {
+  const seen = new Set<string>();
+  return accounts.filter(account => {
+    const key = `${account.provider}|${account.base_url}|${account.model}|${maskKey(account.api_key_encrypted)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function firstEnv(...names: string[]) {
+  for (const name of names) {
+    const value = process.env[name]?.trim();
+    if (isUsableSecret(value)) return value;
+  }
+  return "";
+}
+
+function isUsableAccount(account: Account) {
+  if (!account.base_url || !account.model) return false;
+  if (account.provider === "compatible" && /11434/.test(account.base_url)) return true;
+  return isUsableSecret(account.api_key_encrypted);
+}
+
+function isUsableSecret(value?: string) {
+  if (!value) return false;
+  const lowered = value.toLowerCase();
+  if (["your gemini key", "your openai key", "your api key", "api key", "key", "placeholder", "changeme"].includes(lowered)) return false;
+  if (lowered.startsWith("your-") || lowered.startsWith("replace")) return false;
+  return value.length >= 12;
+}
+
+function maskKey(value?: string) {
+  if (!value) return "";
+  return `${value.slice(0, 4)}:${value.length}`;
+}
+
+function friendlyProviderError(error: unknown) {
+  const raw = error instanceof Error ? error.message : String(error || "request failed");
+  if (/api key|invalid.*key|unauthorized|permission|401|403/i.test(raw)) return "API key is invalid or not allowed for this model.";
+  if (/quota|billing|429|rate/i.test(raw)) return "quota, billing, or rate limit blocked the request.";
+  if (/model|not found|404/i.test(raw)) return "model name is not available for this provider.";
+  if (/fetch|network|ECONN|timeout/i.test(raw)) return "network connection failed.";
+  return raw.length > 220 ? `${raw.slice(0, 220)}...` : raw;
+}
+
+function providerSetupMessage(attempts: Account[], failures: string[]) {
+  if (!attempts.length) {
+    return "I could not reach an AI model because no usable shared AI account is configured. In Render Environment, set SHARED_GEMINI_API_KEY to a real Gemini key from Google AI Studio, set SHARED_GEMINI_MODEL to gemini-2.5-flash, then save and redeploy.";
+  }
+
+  return [
+    "I tried to answer, but every configured AI provider failed. The app itself is running; the issue is the AI account configuration.",
+    "",
+    "What to fix in Render Environment:",
+    "1. Make sure SHARED_GEMINI_API_KEY contains the real key, not text like 'your Gemini key'.",
+    "2. Use SHARED_GEMINI_MODEL=gemini-2.5-flash.",
+    "3. Remove duplicate SHARED_* variables with placeholder values.",
+    "4. Click Save, rebuild, and deploy.",
+    failures.length ? `\nProvider checks: ${failures.join(" | ")}` : ""
+  ].filter(Boolean).join("\n");
 }
 
 function stringifyContent(content: ChatMessage["content"] | unknown) {
