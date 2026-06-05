@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import { supabaseAdmin } from "./supabase";
+import { supabaseAuth } from "./supabase";
 
 export type AuthedRequest = Request & {
   user: { id: string; email?: string };
@@ -12,9 +12,9 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return;
   }
 
-  const { data, error } = await supabaseAdmin.auth.getUser(token);
+  const { data, error } = await supabaseAuth.auth.getUser(token);
   if (error || !data.user) {
-    res.status(401).json({ error: "Invalid session" });
+    res.status(401).json({ error: "Invalid or expired session. Please sign in again." });
     return;
   }
 
