@@ -1,0 +1,107 @@
+body.advanced-features .top-actions [data-advanced-button] {
+  background: #162235;
+  border-color: rgba(121, 184, 255, .32);
+}
+
+body.advanced-features .advanced-workspace-panel,
+body.advanced-features .advanced-performance-panel,
+body.advanced-features .advanced-schedule-panel,
+body.advanced-features .advanced-rag-panel {
+  border-color: rgba(196, 167, 255, .34);
+  background: linear-gradient(180deg, rgba(32, 30, 45, .96), rgba(24, 29, 38, .96));
+}
+
+body.advanced-features .advanced-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+body.advanced-features .advanced-grid select {
+  min-width: 110px;
+}
+
+body.advanced-features .advanced-schedule-panel textarea {
+  min-height: 86px;
+  resize: vertical;
+  line-height: 1.4;
+  width: 100%;
+  margin: 8px 0;
+  background: #0f141b;
+}
+
+body.advanced-features .advanced-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+body.advanced-features .advanced-row {
+  display: grid;
+  gap: 5px;
+  border: 1px solid var(--line-soft, #252b35);
+  border-radius: 8px;
+  padding: 10px;
+  background: #12161d;
+}
+
+body.advanced-features .advanced-row strong {
+  font-size: 13px;
+  color: var(--text, #f5f7fb);
+}
+
+body.advanced-features .advanced-row span,
+body.advanced-features .advanced-row small {
+  color: var(--muted, #a4b0c0);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+body.advanced-features .advanced-row button,
+body.advanced-features .advanced-grid button {
+  padding: 7px 10px;
+  font-size: 12px;
+  width: fit-content;
+}
+
+body.advanced-features .advanced-row meter {
+  width: 100%;
+  height: 10px;
+}
+
+body.advanced-features .advanced-feedback-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding: 8px;
+  border: 1px solid rgba(121, 184, 255, .22);
+  border-radius: 8px;
+  background: rgba(18, 24, 34, .72);
+  color: var(--muted, #a4b0c0);
+  font-size: 12px;
+  white-space: normal;
+}
+
+body.advanced-features .advanced-feedback-bar button {
+  padding: 5px 8px;
+  min-height: 0;
+  font-size: 11px;
+}
+
+body.advanced-features .advanced-feedback-bar.good {
+  border-color: rgba(88, 214, 163, .58);
+}
+
+body.advanced-features .advanced-feedback-bar.bad {
+  border-color: rgba(255, 141, 141, .58);
+}
+
+@media (max-width: 620px) {
+  body.advanced-features .advanced-grid {
+    grid-template-columns: 1fr;
+  }
+}
