@@ -1,0 +1,18 @@
+body.chatgpt-enhanced .source-card.authoritative-source {
+  border-color: rgba(94, 224, 173, .75);
+  box-shadow: 0 0 0 1px rgba(94, 224, 173, .18), 0 10px 26px rgba(0, 0, 0, .18);
+}
+
+body.chatgpt-enhanced .source-card .authority-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-top: 8px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(94, 224, 173, .14);
+  border: 1px solid rgba(94, 224, 173, .55);
+  color: #8ff0c8;
+  font-size: 11px;
+  font-weight: 800;
+}
