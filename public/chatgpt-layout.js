@@ -1,4 +1,8 @@
 (() => {
+  const authoritativeDomains = ["rbi.org.in", "sebi.gov.in", "bseindia.com", "nseindia.com"];
+
+  const isAuthoritative = text => authoritativeDomains.some(domain => text.toLowerCase().includes(domain));
+
   const ready = () => {
     document.body.classList.add("chatgpt-enhanced");
 
@@ -59,6 +63,18 @@
         const text = item.textContent?.trim() || "direct agent response";
         if (!/^via:/i.test(text)) item.textContent = text;
       }
+    });
+
+    document.querySelectorAll(".source-card").forEach(card => {
+      if (!(card instanceof HTMLElement) || card.dataset.authorityChecked) return;
+      card.dataset.authorityChecked = "true";
+      const text = card.textContent || "";
+      if (!isAuthoritative(text)) return;
+      card.classList.add("authoritative-source");
+      const badge = document.createElement("small");
+      badge.className = "authority-badge";
+      badge.textContent = "Authoritative Indian finance source";
+      card.appendChild(badge);
     });
   };
 
