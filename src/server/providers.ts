@@ -17,7 +17,8 @@ export type ChatMessage = {
 export function createOpenAICompatibleClient(account: Account) {
   return new OpenAI({
     apiKey: account.api_key_encrypted || "ollama",
-    baseURL: account.base_url || process.env.DEFAULT_OPENAI_COMPAT_BASE_URL
+    baseURL: account.base_url || process.env.DEFAULT_OPENAI_COMPAT_BASE_URL,
+    defaultHeaders: compatibleHeaders(account)
   });
 }
 
@@ -184,6 +185,42 @@ function envFallbackAccounts(primary: Account): Account[] {
     });
   }
 
+  const groqKey = firstEnv("SHARED_GROQ_API_KEY", "GROQ_API_KEY");
+  if (groqKey) {
+    accounts.push({
+      id: "shared-groq-fallback",
+      label: "Shared Groq",
+      provider: "groq",
+      base_url: firstEnv("SHARED_GROQ_BASE_URL") || "https://api.groq.com/openai/v1",
+      model: firstEnv("SHARED_GROQ_MODEL") || "llama-3.1-8b-instant",
+      api_key_encrypted: groqKey
+    });
+  }
+
+  const openRouterKey = firstEnv("SHARED_OPENROUTER_API_KEY", "OPENROUTER_API_KEY");
+  if (openRouterKey) {
+    accounts.push({
+      id: "shared-openrouter-fallback",
+      label: "Shared OpenRouter",
+      provider: "openrouter",
+      base_url: firstEnv("SHARED_OPENROUTER_BASE_URL") || "https://openrouter.ai/api/v1",
+      model: firstEnv("SHARED_OPENROUTER_MODEL") || "meta-llama/llama-3.1-8b-instruct:free",
+      api_key_encrypted: openRouterKey
+    });
+  }
+
+  const togetherKey = firstEnv("SHARED_TOGETHER_API_KEY", "TOGETHER_API_KEY");
+  if (togetherKey) {
+    accounts.push({
+      id: "shared-together-fallback",
+      label: "Shared Together",
+      provider: "together",
+      base_url: firstEnv("SHARED_TOGETHER_BASE_URL") || "https://api.together.xyz/v1",
+      model: firstEnv("SHARED_TOGETHER_MODEL") || "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+      api_key_encrypted: togetherKey
+    });
+  }
+
   const openaiKey = firstEnv("SHARED_OPENAI_API_KEY", "OPENAI_API_KEY", "DEFAULT_OPENAI_API_KEY", "DEFAULT_API_KEY");
   if (openaiKey) {
     accounts.push({
@@ -221,6 +258,14 @@ function uniqueAccounts(accounts: Account[]) {
   });
 }
 
+function compatibleHeaders(account: Account) {
+  if (account.provider !== "openrouter") return undefined;
+  return {
+    "HTTP-Referer": process.env.PUBLIC_APP_URL || "https://ai-agents-31pz.onrender.com",
+    "X-Title": "AI Agents"
+  };
+}
+
 function firstEnv(...names: string[]) {
   for (const name of names) {
     const value = process.env[name]?.trim();
@@ -238,7 +283,7 @@ function isUsableAccount(account: Account) {
 function isUsableSecret(value?: string) {
   if (!value) return false;
   const lowered = value.toLowerCase();
-  if (["your gemini key", "your openai key", "your api key", "api key", "key", "placeholder", "changeme"].includes(lowered)) return false;
+  if (["your gemini key", "your openai key", "your groq key", "your openrouter key", "your together key", "your api key", "api key", "key", "placeholder", "changeme"].includes(lowered)) return false;
   if (lowered.startsWith("your-") || lowered.startsWith("replace")) return false;
   return value.length >= 12;
 }
@@ -267,9 +312,9 @@ function providerSetupMessage(attempts: Account[], failures: string[]) {
     "",
     "What to fix in Render Environment:",
     "1. Make sure SHARED_GEMINI_API_KEY contains the real key, not text like 'your Gemini key'.",
-    "2. Use SHARED_GEMINI_MODEL=gemini-2.5-flash.",
-    "3. Remove duplicate SHARED_* variables with placeholder values.",
-    "4. Click Save, rebuild, and deploy.",
+    "2. Optional fallbacks: add SHARED_GROQ_API_KEY, SHARED_OPENROUTER_API_KEY, or SHARED_TOGETHER_API_KEY.",
+    "3. Use model envs like SHARED_GEMINI_MODEL=gemini-2.5-flash and SHARED_GROQ_MODEL=llama-3.1-8b-instant.",
+    "4. Remove duplicate SHARED_* variables with placeholder values, then save and redeploy.",
     failures.length ? `\nProvider checks: ${failures.join(" | ")}` : ""
   ].filter(Boolean).join("\n");
 }
