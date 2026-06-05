@@ -1,11 +1,12 @@
 (() => {
   const authoritativeDomains = ["rbi.org.in", "sebi.gov.in", "bseindia.com", "nseindia.com"];
   const starterPrompts = [
-    "Give me today’s useful updates with sources.",
+    "Give me today's useful updates with sources.",
     "Plan the next 3 improvements for this app.",
     "Ask the agent team to research this carefully."
   ];
   const agentColors = ["#69a7ff", "#5ee0ad", "#f6c177", "#c4a7ff", "#ff8ba7", "#89ddff", "#a6e3a1", "#f38ba8", "#fab387", "#94e2d5"];
+  const scheduler = { queued: false, lastRun: 0 };
 
   const isAuthoritative = text => authoritativeDomains.some(domain => text.toLowerCase().includes(domain));
   const textOf = node => (node?.textContent || "").trim();
@@ -18,7 +19,8 @@
   const setComposerText = text => {
     const textarea = document.querySelector(".composer textarea");
     if (!(textarea instanceof HTMLTextAreaElement)) return;
-    textarea.value = text;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
+    setter?.call(textarea, text);
     textarea.dispatchEvent(new Event("input", { bubbles: true }));
     textarea.focus();
   };
@@ -50,17 +52,16 @@
       agent.prepend(avatar);
     });
 
-    document.querySelectorAll(".sidebar .agent, .history-item").forEach(item => {
-      if (item instanceof HTMLElement && !item.dataset.drawerBound) {
-        item.dataset.drawerBound = "true";
-        item.addEventListener("click", () => document.body.classList.remove("nav-open"));
-      }
+    document.querySelectorAll(".sidebar .agent:not([data-drawer-bound]), .history-item:not([data-drawer-bound])").forEach(item => {
+      if (!(item instanceof HTMLElement)) return;
+      item.dataset.drawerBound = "true";
+      item.addEventListener("click", () => document.body.classList.remove("nav-open"));
     });
   };
 
   const enhanceHistory = () => {
     const list = document.querySelector(".history-list-priority");
-    if (!list || list.dataset.groupedAt === String(list.children.length)) return;
+    if (!list || list.dataset.groupedAt === String(list.querySelectorAll(".history-item").length)) return;
     list.querySelectorAll(".history-date-group").forEach(item => item.remove());
     const items = Array.from(list.querySelectorAll(".history-item"));
     let previous = "";
@@ -82,7 +83,7 @@
         previous = label;
       }
     });
-    list.dataset.groupedAt = String(list.children.length);
+    list.dataset.groupedAt = String(items.length);
   };
 
   const enhanceEmptyState = () => {
@@ -102,7 +103,7 @@
   };
 
   const enhanceBubbles = () => {
-    document.querySelectorAll(".bubble.assistant").forEach(bubble => {
+    Array.from(document.querySelectorAll(".bubble.assistant")).slice(-12).forEach(bubble => {
       if (!(bubble instanceof HTMLElement)) return;
       const text = textOf(bubble);
       const cards = sourceCardsForBubble(bubble);
@@ -127,21 +128,23 @@
         button.type = "button";
         button.className = "continue-answer";
         button.textContent = "Continue ->";
-        button.addEventListener("click", () => { setComposerText("Continue the previous answer from exactly where it stopped. Keep the same sources and context."); sendComposer(); });
+        button.addEventListener("click", () => {
+          setComposerText("Continue the previous answer from exactly where it stopped. Keep the same sources and context.");
+          sendComposer();
+        });
         bubble.appendChild(button);
       }
     });
 
-    document.querySelectorAll(".source-summary").forEach(item => {
-      if (item instanceof HTMLElement && !item.dataset.polished) {
-        item.dataset.polished = "true";
-        const text = textOf(item) || "direct agent response";
-        if (!/^via:/i.test(text)) item.textContent = text;
-      }
+    document.querySelectorAll(".source-summary:not([data-polished])").forEach(item => {
+      if (!(item instanceof HTMLElement)) return;
+      item.dataset.polished = "true";
+      const text = textOf(item) || "direct agent response";
+      if (!/^via:/i.test(text)) item.textContent = text;
     });
 
-    document.querySelectorAll(".source-card").forEach(card => {
-      if (!(card instanceof HTMLElement) || card.dataset.authorityChecked) return;
+    document.querySelectorAll(".source-card:not([data-authority-checked])").forEach(card => {
+      if (!(card instanceof HTMLElement)) return;
       card.dataset.authorityChecked = "true";
       if (!isAuthoritative(textOf(card))) return;
       card.classList.add("authoritative-source");
@@ -169,12 +172,24 @@
     document.body.dataset.shortcutsInstalled = "true";
     document.addEventListener("keydown", event => {
       const key = event.key.toLowerCase();
-      if ((event.ctrlKey || event.metaKey) && key === "k") { event.preventDefault(); clickButtonByText("+ New chat"); }
-      if ((event.ctrlKey || event.metaKey) && key === "h") { event.preventDefault(); document.body.classList.add("nav-open"); }
-      if (key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName || "")) { event.preventDefault(); document.querySelector(".composer textarea")?.focus(); }
+      if ((event.ctrlKey || event.metaKey) && key === "k") {
+        event.preventDefault();
+        clickButtonByText("+ New chat");
+      }
+      if ((event.ctrlKey || event.metaKey) && key === "h") {
+        event.preventDefault();
+        document.body.classList.add("nav-open");
+      }
+      if (key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName || "")) {
+        event.preventDefault();
+        document.querySelector(".composer textarea")?.focus();
+      }
       if ((event.ctrlKey || event.metaKey) && /^[1-9]$/.test(key)) {
         const agent = document.querySelectorAll(".sidebar .agent")[Number(key) - 1];
-        if (agent instanceof HTMLElement) { event.preventDefault(); agent.click(); }
+        if (agent instanceof HTMLElement) {
+          event.preventDefault();
+          agent.click();
+        }
       }
     });
   };
@@ -222,7 +237,10 @@
     }
 
     const toolsButton = Array.from(document.querySelectorAll(".top-actions button")).find(button => textOf(button) === "Tools");
-    if (toolsButton) { toolsButton.classList.add("settings-toggle"); toolsButton.textContent = "Settings"; }
+    if (toolsButton) {
+      toolsButton.classList.add("settings-toggle");
+      toolsButton.textContent = "Settings";
+    }
     const textarea = document.querySelector(".composer textarea");
     if (textarea) textarea.setAttribute("title", "/ focuses input, Ctrl+K starts a new chat, Ctrl+1-9 switches agents");
   };
@@ -237,7 +255,19 @@
     installShortcuts();
   };
 
-  const schedule = () => window.requestAnimationFrame(ready);
+  const schedule = () => {
+    const now = Date.now();
+    if (scheduler.queued || now - scheduler.lastRun < 120) return;
+    scheduler.queued = true;
+    window.requestAnimationFrame(() => {
+      scheduler.queued = false;
+      scheduler.lastRun = Date.now();
+      ready();
+    });
+  };
+
   window.addEventListener("DOMContentLoaded", schedule);
-  new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
+  window.addEventListener("load", schedule);
+  const root = document.getElementById("root") || document.body;
+  new MutationObserver(schedule).observe(root, { childList: true, subtree: true });
 })();
