@@ -9,25 +9,21 @@
     { agent: "Nova", words: /news|latest|current|update|today|recent/i }
   ];
 
-  const state = {
-    lastAgentName: "",
-    lastContext: "",
-    teamAccepted: false
-  };
-
+  const state = { lastAgentName: "", lastContext: "", scheduled: false, lastTick: 0 };
   const textOf = node => (node?.textContent || "").trim();
-  const byText = (selector, needle) => Array.from(document.querySelectorAll(selector)).find(node => textOf(node).toLowerCase().includes(needle.toLowerCase()));
-  const buttonByText = text => Array.from(document.querySelectorAll("button")).find(button => textOf(button).toLowerCase() === text.toLowerCase());
+  const qs = (selector, root = document) => root.querySelector(selector);
+  const qsa = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+  const byText = (selector, needle) => qsa(selector).find(node => textOf(node).toLowerCase().includes(needle.toLowerCase()));
+  const buttonByText = text => qsa("button").find(button => textOf(button).toLowerCase() === text.toLowerCase());
 
   function selectedAgentName() {
-    const select = document.querySelector(".agent-switcher select");
+    const select = qs(".agent-switcher select");
     if (select instanceof HTMLSelectElement) return select.selectedOptions[0]?.textContent?.split(" - ")[0]?.trim() || "Agent";
-    const active = document.querySelector(".agent.active strong");
-    return textOf(active) || "Agent";
+    return textOf(qs(".agent.active strong")) || "Agent";
   }
 
   function setComposer(text) {
-    const textarea = document.querySelector(".composer textarea");
+    const textarea = qs(".composer textarea");
     if (!(textarea instanceof HTMLTextAreaElement)) return;
     const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
     setter?.call(textarea, text);
@@ -36,69 +32,59 @@
   }
 
   function currentComposerText() {
-    const textarea = document.querySelector(".composer textarea");
+    const textarea = qs(".composer textarea");
     return textarea instanceof HTMLTextAreaElement ? textarea.value.trim() : "";
   }
 
   function collectRecentContext() {
-    const bubbles = Array.from(document.querySelectorAll(".bubble")).slice(-5);
-    return bubbles.map(bubble => textOf(bubble).slice(0, 700)).filter(Boolean).join("\n\n");
+    return qsa(".bubble").slice(-5).map(bubble => textOf(bubble).slice(0, 700)).filter(Boolean).join("\n\n");
   }
 
   function ensureTopButtons() {
-    const actions = document.querySelector(".top-actions");
-    if (!actions || actions.querySelector("[data-workflow-button='memory']")) return;
-
-    const memory = document.createElement("button");
-    memory.type = "button";
-    memory.dataset.workflowButton = "memory";
-    memory.textContent = "Memory";
-    memory.addEventListener("click", () => {
-      const tools = buttonByText("Tools") || document.querySelector("button[aria-label*='settings' i]");
-      tools?.click();
-      setTimeout(() => byText(".panel-card h2", "Memory")?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+    const actions = qs(".top-actions");
+    if (!actions || qs("[data-workflow-button='memory']", actions)) return;
+    [["GitHub", "GitHub"], ["Memory", "Memory"]].forEach(([label, target]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.workflowButton = label.toLowerCase();
+      button.textContent = label;
+      button.addEventListener("click", () => {
+        (buttonByText("Tools") || buttonByText("Settings") || qs("button[aria-label*='settings' i]"))?.click();
+        setTimeout(() => byText(".panel-card h2", target)?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+      });
+      actions.insertBefore(button, actions.firstChild);
     });
-
-    const github = document.createElement("button");
-    github.type = "button";
-    github.dataset.workflowButton = "github";
-    github.textContent = "GitHub";
-    github.addEventListener("click", () => {
-      const tools = buttonByText("Tools") || document.querySelector("button[aria-label*='settings' i]");
-      tools?.click();
-      setTimeout(() => byText(".panel-card h2", "GitHub")?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
-    });
-
-    actions.insertBefore(memory, actions.firstChild);
-    actions.insertBefore(github, actions.firstChild);
   }
 
   function ensureRouteHint() {
-    const form = document.querySelector(".composer");
-    const textarea = form?.querySelector("textarea");
+    const form = qs(".composer");
+    const textarea = qs("textarea", form);
     if (!(form instanceof HTMLFormElement) || !(textarea instanceof HTMLTextAreaElement)) return;
-    let hint = form.querySelector(".workflow-route-hint");
+    let hint = qs(".workflow-route-hint", form);
     if (!hint) {
       hint = document.createElement("div");
       hint.className = "workflow-route-hint";
-      const first = form.firstElementChild;
-      form.insertBefore(hint, first);
+      form.insertBefore(hint, form.firstElementChild);
     }
-
-    const match = routeHints.find(item => item.agent !== selectedAgentName() && item.words.test(textarea.value));
-    if (!match || !textarea.value.trim()) {
+    const value = textarea.value.trim();
+    const match = value ? routeHints.find(item => item.agent !== selectedAgentName() && item.words.test(value)) : null;
+    if (!match) {
       hint.hidden = true;
       return;
     }
-
+    if (hint.dataset.agent === match.agent) {
+      hint.hidden = false;
+      return;
+    }
+    hint.dataset.agent = match.agent;
     hint.hidden = false;
     hint.innerHTML = `<span>Best agent: <b>${match.agent}</b></span><button type="button" data-switch>Switch</button><button type="button" data-keep>Keep current</button>`;
-    hint.querySelector("[data-switch]")?.addEventListener("click", () => switchToAgent(match.agent));
-    hint.querySelector("[data-keep]")?.addEventListener("click", () => { hint.hidden = true; });
+    qs("[data-switch]", hint)?.addEventListener("click", () => switchToAgent(match.agent));
+    qs("[data-keep]", hint)?.addEventListener("click", () => { hint.hidden = true; });
   }
 
   function switchToAgent(agentName) {
-    const select = document.querySelector(".agent-switcher select");
+    const select = qs(".agent-switcher select");
     if (select instanceof HTMLSelectElement) {
       const option = Array.from(select.options).find(item => item.textContent?.toLowerCase().startsWith(agentName.toLowerCase()));
       if (option) {
@@ -107,23 +93,26 @@
         return;
       }
     }
-    const button = Array.from(document.querySelectorAll(".agent")).find(item => textOf(item).toLowerCase().startsWith(agentName.toLowerCase()));
-    button?.click();
+    qsa(".agent").find(item => textOf(item).toLowerCase().startsWith(agentName.toLowerCase()))?.click();
   }
 
   function attachComposerGuards() {
-    const form = document.querySelector(".composer");
-    const textarea = form?.querySelector("textarea");
+    const form = qs(".composer");
+    const textarea = qs("textarea", form);
     if (!(form instanceof HTMLFormElement) || !(textarea instanceof HTMLTextAreaElement) || form.dataset.workflowGuarded) return;
     form.dataset.workflowGuarded = "1";
-
-    textarea.addEventListener("input", ensureRouteHint);
+    let inputTimer;
+    textarea.addEventListener("input", () => {
+      clearTimeout(inputTimer);
+      inputTimer = setTimeout(ensureRouteHint, 140);
+    });
     form.addEventListener("submit", event => {
       if (form.dataset.teamPlanAccepted === "1") {
         delete form.dataset.teamPlanAccepted;
         return;
       }
-      const teamOn = document.querySelector(".team-toggle input") instanceof HTMLInputElement && document.querySelector(".team-toggle input").checked;
+      const teamToggle = qs(".team-toggle input");
+      const teamOn = teamToggle instanceof HTMLInputElement && teamToggle.checked;
       if (!teamOn || !currentComposerText()) return;
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -132,63 +121,58 @@
   }
 
   function showTeamPlan(form) {
-    let card = form.querySelector(".workflow-team-plan");
+    let card = qs(".workflow-team-plan", form);
     if (!card) {
       card = document.createElement("div");
       card.className = "workflow-team-plan";
       form.insertBefore(card, form.firstElementChild);
     }
-    const agent = selectedAgentName();
-    const checked = Array.from(document.querySelectorAll(".advisor-list input:checked")).length;
-    const estimate = Math.max(2, checked + 2);
     const prompt = currentComposerText();
-    card.innerHTML = `
-      <div><strong>Team mode plan</strong><span>You -> ${agent} -> selected team agents. About ${estimate} AI call(s).</span></div>
-      <textarea>${escapeHtml(prompt)}</textarea>
-      <div class="workflow-actions"><button type="button" data-accept>Accept</button><button type="button" data-cancel>Cancel</button></div>
-    `;
-    card.querySelector("[data-accept]")?.addEventListener("click", () => {
-      const edited = card.querySelector("textarea")?.value || prompt;
-      setComposer(edited);
+    const checked = qsa(".advisor-list input:checked").length;
+    const estimate = Math.max(2, checked + 2);
+    card.innerHTML = `<div><strong>Team mode plan</strong><span>You -> ${selectedAgentName()} -> selected team agents. About ${estimate} AI call(s).</span></div><textarea>${escapeHtml(prompt)}</textarea><div class="workflow-actions"><button type="button" data-accept>Accept</button><button type="button" data-cancel>Cancel</button></div>`;
+    qs("[data-accept]", card)?.addEventListener("click", () => {
+      setComposer(qs("textarea", card)?.value || prompt);
       form.dataset.teamPlanAccepted = "1";
       card.remove();
       form.requestSubmit();
     });
-    card.querySelector("[data-cancel]")?.addEventListener("click", () => card.remove());
+    qs("[data-cancel]", card)?.addEventListener("click", () => card.remove());
   }
 
   function attachHandoff() {
-    const select = document.querySelector(".agent-switcher select");
+    const select = qs(".agent-switcher select");
     if (!(select instanceof HTMLSelectElement) || select.dataset.handoffAttached) return;
     select.dataset.handoffAttached = "1";
     select.addEventListener("pointerdown", () => {
       state.lastAgentName = selectedAgentName();
       state.lastContext = collectRecentContext();
     }, true);
-    select.addEventListener("change", () => setTimeout(showHandoffPrompt, 150));
+    select.addEventListener("change", () => setTimeout(showHandoffPrompt, 120));
   }
 
   function showHandoffPrompt() {
     if (!state.lastContext) return;
-    const form = document.querySelector(".composer");
-    if (!form || form.querySelector(".workflow-handoff")) return;
+    const form = qs(".composer");
+    if (!form || qs(".workflow-handoff", form)) return;
     const card = document.createElement("div");
     card.className = "workflow-handoff";
     card.innerHTML = `<strong>Share last 5 messages with ${selectedAgentName()}?</strong><span>Preserve context from ${state.lastAgentName} instead of starting cold.</span><div><button type="button" data-use>Use context</button><button type="button" data-skip>Skip</button></div>`;
     form.insertBefore(card, form.firstElementChild);
-    card.querySelector("[data-use]")?.addEventListener("click", () => {
+    qs("[data-use]", card)?.addEventListener("click", () => {
       setComposer(`Continue this task using context from ${state.lastAgentName}.\n\n${state.lastContext}\n\nNow help me with the next step.`);
       card.remove();
     });
-    card.querySelector("[data-skip]")?.addEventListener("click", () => card.remove());
+    qs("[data-skip]", card)?.addEventListener("click", () => card.remove());
   }
 
   function enhanceToolsDrawer() {
-    const panel = document.querySelector(".right-panel");
-    if (!panel) return;
+    const panel = qs(".right-panel");
+    if (!panel || panel.dataset.workflowDrawerDone) return;
     enhanceMemoryPanel(panel);
     ensureCoderPanel(panel);
     enhanceGithubPanel(panel);
+    panel.dataset.workflowDrawerDone = "1";
   }
 
   function enhanceMemoryPanel(panel) {
@@ -205,46 +189,37 @@
   }
 
   function ensureCoderPanel(panel) {
-    if (panel.querySelector(".workflow-coder-panel")) return;
+    if (qs(".workflow-coder-panel", panel)) return;
     const card = document.createElement("section");
     card.className = "panel-card workflow-coder-panel";
-    card.innerHTML = `
-      <h2>Coder Project</h2>
-      <p class="panel-help">Proposed code work lands here first. Accept or reject before treating it as approved.</p>
-      <div class="workflow-coder-list"></div>
-      <button type="button" data-add>Stage current prompt for Coder</button>
-    `;
+    card.innerHTML = `<h2>Coder Project</h2><p class="panel-help">Proposed code work lands here first. Accept or reject before treating it as approved.</p><div class="workflow-coder-list"></div><button type="button" data-add>Stage current prompt for Coder</button>`;
     const github = byText(".right-panel .panel-card h2", "GitHub")?.closest(".panel-card");
     panel.insertBefore(card, github || panel.children[1] || null);
-    card.querySelector("[data-add]")?.addEventListener("click", () => addCoderChange(currentComposerText() || "Review current app improvement"));
+    qs("[data-add]", card)?.addEventListener("click", () => addCoderChange(currentComposerText() || "Review current app improvement"));
     renderCoderChanges(card);
   }
 
-  function coderChanges() {
-    try { return JSON.parse(localStorage.getItem("aiAgentsCoderChanges") || "[]"); } catch { return []; }
-  }
-
-  function saveCoderChanges(items) {
-    localStorage.setItem("aiAgentsCoderChanges", JSON.stringify(items));
-  }
+  const coderChanges = () => {
+    try { return JSON.parse(localStorage.getItem("aiAgentsCoderChanges") || "[]"); }
+    catch { return []; }
+  };
+  const saveCoderChanges = items => localStorage.setItem("aiAgentsCoderChanges", JSON.stringify(items));
 
   function addCoderChange(title) {
     const items = coderChanges();
     items.unshift({ id: crypto.randomUUID(), title, file: "pending", status: "pending", diff: "Coder must show a diff or command plan here before execution." });
     saveCoderChanges(items);
-    document.querySelectorAll(".workflow-coder-panel").forEach(renderCoderChanges);
+    qsa(".workflow-coder-panel").forEach(renderCoderChanges);
   }
 
   function renderCoderChanges(card) {
-    const list = card.querySelector(".workflow-coder-list");
+    const list = qs(".workflow-coder-list", card);
     if (!list) return;
     const items = coderChanges();
-    list.innerHTML = items.length ? items.map(item => `
-      <div class="workflow-coder-change ${item.status}" data-id="${item.id}">
-        <strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.file)}</span><pre>${escapeHtml(item.diff)}</pre>
-        <div><button type="button" data-status="accepted">Accept</button><button type="button" data-status="rejected">Reject</button><button type="button" data-status="pending">Reset</button></div>
-      </div>`).join("") : `<p class="panel-help">No staged Coder changes yet.</p>`;
-    list.querySelectorAll("button[data-status]").forEach(button => button.addEventListener("click", () => {
+    list.innerHTML = items.length
+      ? items.map(item => `<div class="workflow-coder-change ${item.status}" data-id="${item.id}"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.file)}</span><pre>${escapeHtml(item.diff)}</pre><div><button type="button" data-status="accepted">Accept</button><button type="button" data-status="rejected">Reject</button><button type="button" data-status="pending">Reset</button></div></div>`).join("")
+      : `<p class="panel-help">No staged Coder changes yet.</p>`;
+    qsa("button[data-status]", list).forEach(button => button.addEventListener("click", () => {
       const id = button.closest("[data-id]")?.dataset.id;
       const status = button.dataset.status;
       saveCoderChanges(coderChanges().map(item => item.id === id ? { ...item, status } : item));
@@ -261,10 +236,10 @@
     bar.className = "workflow-github-sync";
     bar.innerHTML = `<button type="button" data-sync>Sync issues</button><span>Uses /api/github/issues when configured; otherwise keeps local drafts.</span>`;
     heading.insertAdjacentElement("afterend", bar);
-    bar.querySelector("[data-sync]")?.addEventListener("click", async () => {
-      const repoInput = card.querySelector("input[placeholder*='Repository']");
+    qs("[data-sync]", bar)?.addEventListener("click", async () => {
+      const repoInput = qs("input[placeholder*='Repository']", card);
       const repo = repoInput instanceof HTMLInputElement ? repoInput.value : "";
-      const status = bar.querySelector("span");
+      const status = qs("span", bar);
       status.textContent = "Checking GitHub...";
       try {
         const response = await fetch(`/api/github/issues?repo=${encodeURIComponent(repo)}`);
@@ -286,12 +261,22 @@
     ensureTopButtons();
     attachComposerGuards();
     attachHandoff();
-    ensureRouteHint();
     enhanceToolsDrawer();
   }
 
-  const observer = new MutationObserver(tick);
-  observer.observe(document.documentElement, { childList: true, subtree: true });
-  window.addEventListener("load", tick);
-  setInterval(tick, 1500);
+  function schedule() {
+    const now = Date.now();
+    if (state.scheduled || now - state.lastTick < 180) return;
+    state.scheduled = true;
+    requestAnimationFrame(() => {
+      state.scheduled = false;
+      state.lastTick = Date.now();
+      tick();
+    });
+  }
+
+  window.addEventListener("load", schedule);
+  window.addEventListener("focus", schedule);
+  const root = document.getElementById("root") || document.body;
+  new MutationObserver(schedule).observe(root, { childList: true, subtree: true });
 })();
