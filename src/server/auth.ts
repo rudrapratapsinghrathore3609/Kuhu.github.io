@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import { supabaseAuth } from "./supabase";
 
 export type AuthedRequest = Request & {
+  accessToken: string;
   user: { id: string; email?: string };
 };
 
@@ -18,6 +19,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return;
   }
 
+  (req as AuthedRequest).accessToken = token;
   (req as AuthedRequest).user = {
     id: data.user.id,
     email: data.user.email ?? undefined
