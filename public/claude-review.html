@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Agents App - Claude Review Brief</title>
+  <style>
+    body { font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.55; color: #111827; background: #f8fafc; margin: 0; }
+    main { max-width: 960px; margin: 0 auto; padding: 40px 20px 72px; }
+    h1 { font-size: 38px; margin: 0 0 8px; }
+    h2 { margin-top: 36px; border-top: 1px solid #dbe3ef; padding-top: 24px; }
+    h3 { margin-top: 24px; }
+    p, li { font-size: 16px; }
+    code { background: #e8eef7; padding: 2px 5px; border-radius: 4px; }
+    pre { background: #111827; color: #e5e7eb; padding: 16px; overflow: auto; border-radius: 8px; }
+    .card { background: #fff; border: 1px solid #dbe3ef; border-radius: 10px; padding: 18px 20px; margin: 16px 0; }
+    .meta { color: #526174; font-size: 15px; }
+    a { color: #0b65c2; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>AI Agents App Review Brief</h1>
+  <p class="meta">Static, JavaScript-free review page for external reviewers such as Claude. The live app is a React SPA, so this page exists to provide readable context without executing client-side JavaScript.</p>
+
+  <div class="card">
+    <p><strong>Live app:</strong> <a href="https://ai-agents-31pz.onrender.com/">https://ai-agents-31pz.onrender.com/</a></p>
+    <p><strong>GitHub repo:</strong> <a href="https://github.com/rudrapratapsinghrathore3609/Kuhu.github.io">https://github.com/rudrapratapsinghrathore3609/Kuhu.github.io</a></p>
+    <p><strong>Current goal:</strong> Build a shareable multi-agent workspace where agents can answer questions, learn reusable patterns from prompts, use connectors/sources, keep chat history, and help build or improve websites/apps.</p>
+  </div>
+
+  <h2>Product Summary</h2>
+  <p>AI Agents is a multi-agent chat workspace. It lets a user choose specialized agents, upload files/photos, maintain conversation history, save learned memory, use AI provider accounts, inspect source trails, and ask a coder agent for app-building help. It is intended to feel closer to ChatGPT than a raw dashboard while keeping power-user tools available in a drawer or tools panel.</p>
+
+  <h2>Primary Agents</h2>
+  <ul>
+    <li><strong>Jarvis:</strong> Chief Supervisor and router for broad tasks.</li>
+    <li><strong>Nova:</strong> News and general knowledge agent.</li>
+    <li><strong>Phil:</strong> Market research and R&amp;D.</li>
+    <li><strong>Mastermind:</strong> Finance and stock market.</li>
+    <li><strong>Homelander:</strong> Skill learning and tracking.</li>
+    <li><strong>Noir:</strong> Studies and academics.</li>
+    <li><strong>Kuhu:</strong> Website planning/building agent with website tooling knowledge.</li>
+    <li><strong>Coder:</strong> App builder and code upgrade agent.</li>
+    <li><strong>Automate:</strong> Task automation agent.</li>
+    <li><strong>History:</strong> Historical context and explanations.</li>
+  </ul>
+
+  <h2>Core Features</h2>
+  <ul>
+    <li>Supabase authentication for sign in and account creation.</li>
+    <li>Supabase-backed chat history, messages, uploads, memories, connectors, and AI accounts.</li>
+    <li>Shared AI accounts via Render environment variables, especially Gemini for free/shared online use.</li>
+    <li>Personal AI accounts saved per user inside the app.</li>
+    <li>Local Ollama support through OpenAI-compatible endpoint: <code>http://localhost:11434/v1</code>.</li>
+    <li>File/photo upload with text extraction for text files.</li>
+    <li>Source trail after answers, including active model, memory considered, and connector status.</li>
+    <li>Voice command controls and speak-answer button.</li>
+    <li>Agent collaboration/council concept for multi-agent results.</li>
+    <li>Coder agent for planning GitHub issues, app improvements, and implementation guidance.</li>
+  </ul>
+
+  <h2>Current Architecture</h2>
+  <ul>
+    <li><strong>Frontend:</strong> React + Vite.</li>
+    <li><strong>Backend:</strong> Express server running with <code>tsx src/server/index.ts</code>.</li>
+    <li><strong>Database/Auth:</strong> Supabase.</li>
+    <li><strong>Deployment:</strong> Render free web service.</li>
+    <li><strong>Repository:</strong> GitHub repo <code>rudrapratapsinghrathore3609/Kuhu.github.io</code>.</li>
+    <li><strong>AI providers:</strong> OpenAI-compatible API, Gemini, Anthropic/Claude, and local Ollama compatible mode.</li>
+  </ul>
+
+  <h2>Important Implementation Notes</h2>
+  <ul>
+    <li>The React app requires JavaScript, so simple fetchers only see an empty HTML shell. This page is static to solve that review problem.</li>
+    <li>Render free tier is too small for hosting meaningful local LLMs. Online shared use should use Gemini or another hosted provider.</li>
+    <li>Ollama works locally on the owner laptop but cannot be used by deployed Render unless exposed through a protected proxy/tunnel/VPN.</li>
+    <li>Raw Ollama should not be exposed publicly without authentication, rate limiting, HTTPS, and request filtering.</li>
+    <li>Shared AI provider accounts should be configured as Render environment variables, not typed by every user.</li>
+  </ul>
+
+  <h2>Known Problems / Recent Fixes</h2>
+  <ul>
+    <li>Users previously saw <code>Invalid API key</code> during sign-up because Supabase public/server keys were misconfigured.</li>
+    <li>Users previously saw only Jarvis or missing agents because server routes depended too much on a failing service-role path.</li>
+    <li>Server now returns built-in fallback agents and uses the signed-in user session for normal data routes.</li>
+    <li>AI account sharing is now designed around environment variables such as <code>SHARED_GEMINI_API_KEY</code>.</li>
+    <li>Raw server errors have been improved, but provider failures still need better UI recovery.</li>
+  </ul>
+
+  <h2>Requested Review From Claude</h2>
+  <ol>
+    <li>Identify the top UX problems in this app concept and current flow.</li>
+    <li>Suggest a better ChatGPT-like layout for agents, history, tools, and connectors.</li>
+    <li>Recommend how the right-side tools/connectors panel should behave.</li>
+    <li>Improve the history area so saved conversations are easy to find and not visually cramped.</li>
+    <li>Suggest how multi-agent collaboration should be represented in the UI.</li>
+    <li>Evaluate the memory/learning model: how should agents learn from prompts without over-memorizing?</li>
+    <li>Recommend source citation/source trail behavior after every answer, including link display and trust indicators.</li>
+    <li>List security risks around shared AI accounts, Supabase keys, Ollama exposure, and uploaded files.</li>
+    <li>Recommend a practical free/low-cost deployment path for a two-person team.</li>
+    <li>Give a prioritized roadmap with quick wins, medium features, and long-term architecture improvements.</li>
+  </ol>
+
+  <h2>Current Desired Roadmap</h2>
+  <ul>
+    <li>Make login smoother and clearer.</li>
+    <li>Make chat history always visible and recoverable.</li>
+    <li>Move tools/connectors/source checks into a hideable drawer.</li>
+    <li>Improve mobile layout with bottom tabs.</li>
+    <li>Make agents interact with each other for better results.</li>
+    <li>Improve voice command accuracy and avoid repeated partial transcripts.</li>
+    <li>Add better source links after every response.</li>
+    <li>Add Coder safety gates before file edits, commands, or deploy actions.</li>
+    <li>Add shared team AI accounts so all users can use the same configured models.</li>
+    <li>Allow local Ollama for private use and hosted Gemini for shared online use.</li>
+  </ul>
+
+  <h2>Suggested Claude Output Format</h2>
+  <pre>1. Executive summary
+2. Top 10 issues, ranked
+3. UX redesign recommendations
+4. Architecture/security recommendations
+5. Multi-agent and memory recommendations
+6. Deployment/provider recommendations
+7. 2-week implementation plan</pre>
+</main>
+</body>
+</html>
