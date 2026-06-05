@@ -8,11 +8,10 @@ import { fileURLToPath } from "node:url";
 import multer from "multer";
 import { fallbackAgents } from "./agents";
 import { requireAuth, type AuthedRequest } from "./auth";
-import { buildConnectorContext, testConnectorConnection } from "./connectors";
 import { learnFromMessage } from "./memory";
 import { buildSystemPrompt, routeAgent } from "./orchestrator";
 import { streamModel, testModelConnection, type Account } from "./providers";
-import { createUserSupabase, supabaseAdmin } from "./supabase";
+import { createUserSupabase } from "./supabase";
 
 dotenv.config();
 
@@ -170,7 +169,37 @@ app.post("/api/connectors", async (req, res, next) => {
 });
 
 app.post("/api/connectors/:id/test", async (req, res, next) => {
-  try { res.json(await testConnectorConnection(userId(req), req.params.id)); } catch (error) { next(error); }
+  try {
+    const { data, error } = await userDb(req)
+      .from("connectors")
+      .select("id,label,type,enabled,config")
+      .eq("user_id", userId(req))
+      .eq("id", req.params.id)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) {
+      res.status(404).json({ ok: false, detail: "Connector not found." });
+      return;
+    }
+    if (!data.enabled) {
+      res.status(400).json({ ok: false, detail: "Connector is saved but disabled." });
+      return;
+    }
+
+    const config = (data.config ?? {}) as Record<string, unknown>;
+    if (data.type === "web_search") {
+      const provider = String(config.provider || "").trim();
+      const apiKey = String(config.apiKey || config.api_key || "").trim();
+      res.status(provider && apiKey ? 200 : 400).json({
+        ok: Boolean(provider && apiKey),
+        detail: provider && apiKey ? `Web search connector is configured for ${provider}.` : "Web search needs provider and apiKey in connector config."
+      });
+      return;
+    }
+
+    res.json({ ok: true, detail: `${data.label || data.type} is saved and readable for this user.` });
+  } catch (error) { next(error); }
 });
 
 app.get("/api/conversations", async (req, res) => {
@@ -296,7 +325,11 @@ app.get("/api/export/:id", async (req, res, next) => {
       .eq("conversation_id", req.params.id)
       .order("created_at");
     if (error) throw error;
-    res.type("text/markdown").send((data ?? []).map(message => `## ${message.role}\n\n${typeof message.content === "string" ? message.content : message.content?.text || JSON.stringify(message.content)}\n`).join("\n"));
+    res.type("text/markdown").send((data ?? []).map((message: { role: string; content: unknown }) => {
+      const content = message.content as { text?: string } | string | null;
+      const text = typeof content === "string" ? content : content?.text || JSON.stringify(content);
+      return `## ${message.role}\n\n${text}\n`;
+    }).join("\n"));
   } catch (error) { next(error); }
 });
 
@@ -317,7 +350,7 @@ app.post("/api/chat/stream", async (req, res, next) => {
     const routed = routeAgent(requestedAgentId, userText);
     const account = await getAccount(req, req.body.accountId);
     const memories = await safeGetRelevantMemory(req, routed.id);
-    const connectorContext = await safeBuildConnectorContext(uid, routed.id, userText);
+    const connectorContext = await safeBuildConnectorContext(req, routed.id);
     const conversationId = await getOrCreateConversation(req, req.body.conversationId, routed.id, userText);
     const userMessage = await insertMessage(req, conversationId, routed.id, "user", userText);
     const system = buildSystemPrompt({ routedAgentId: routed.id, requestedAgentId, memories });
@@ -337,7 +370,15 @@ app.post("/api/chat/stream", async (req, res, next) => {
     await userDb(req).from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", conversationId);
     res.write(`data: ${JSON.stringify({ type: "done", conversationId, agentId: routed.id, messageId: assistantMessage.id })}\n\n`);
     res.end();
-  } catch (error) { next(error); }
+  } catch (error) {
+    const message = errorMessage(error);
+    if (res.headersSent) {
+      res.write(`data: ${JSON.stringify({ type: "error", error: message })}\n\n`);
+      res.end();
+      return;
+    }
+    next(error);
+  }
 });
 
 async function getAccount(req: express.Request, accountId?: string): Promise<Account> {
@@ -377,8 +418,39 @@ async function safeGetRelevantMemory(req: express.Request, agentId: string) {
   } catch { return []; }
 }
 
-async function safeBuildConnectorContext(userIdValue: string, agentId: string, userText: string) {
-  try { return await buildConnectorContext(userIdValue, agentId, userText); } catch { return { context: "", sources: [] }; }
+async function safeBuildConnectorContext(req: express.Request, agentId: string) {
+  try {
+    const { data, error } = await userDb(req)
+      .from("connectors")
+      .select("label,type,enabled,config")
+      .eq("user_id", userId(req))
+      .eq("enabled", true);
+    if (error) throw error;
+
+    const sources = (data ?? []).map((connector: { label: string; type: string; config: Record<string, unknown> | null }) => {
+      const config = (connector.config ?? {}) as Record<string, unknown>;
+      const links = String(config.url || config.baseUrl || config.link || "")
+        ? [{ title: `${connector.label} link`, url: String(config.url || config.baseUrl || config.link) }]
+        : undefined;
+      return {
+        label: connector.label,
+        type: connector.type,
+        status: "available",
+        resultCount: 0,
+        note: connector.type === "web_search" ? "Connector is configured for source checking." : "Connector is available for this agent.",
+        links
+      };
+    });
+
+    const memories = await safeGetRelevantMemory(req, agentId);
+    const context = memories.length
+      ? `\n\n[LEARNED MEMORY]\n${memories.slice(0, 6).map((memory: { category: string; learning: string }) => `- ${memory.category}: ${memory.learning}`).join("\n")}`
+      : "";
+
+    return { context, sources };
+  } catch {
+    return { context: "", sources: [] };
+  }
 }
 
 async function safeLearnFromMessage(params: { userId: string; agentId: string; messageId: string; userText: string; fileNames: string[] }) {
@@ -420,8 +492,15 @@ if (fs.existsSync(distPath)) {
   });
 }
 
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object" && "message" in error) return String((error as { message?: unknown }).message);
+  return "Server error";
+}
+
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  const message = error instanceof Error ? error.message : "Server error";
+  const message = errorMessage(error);
   if (!res.headersSent) res.status(500).json({ error: message });
 });
 
