@@ -61,6 +61,30 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return res.json();
 }
 
+export async function getCoderProposals() {
+  return apiGet<{ proposals: CoderActionProposal[] }>("/api/coder/proposals");
+}
+
+export async function proposeCoderAction(body: {
+  session_id?: string;
+  action_type: CoderActionProposal["action_type"];
+  payload: Record<string, unknown>;
+  description: string;
+}) {
+  return apiPost<{ status: "executed" | "pending_confirmation"; proposal: CoderActionProposal; result?: unknown }>(
+    "/api/coder/propose",
+    body
+  );
+}
+
+export async function approveCoderProposal(id: string) {
+  return apiPost<{ status: "executed"; result: unknown }>(`/api/coder/approve/${id}`, {});
+}
+
+export async function rejectCoderProposal(id: string) {
+  return apiPost<{ status: "rejected" }>(`/api/coder/reject/${id}`, {});
+}
+
 export async function uploadFiles(files: File[], conversationId?: string) {
   const headers = await authHeaders();
   const form = new FormData();
@@ -194,4 +218,27 @@ export type DeployCheck = {
   name: string;
   ok: boolean;
   detail: string;
+};
+
+export type CoderActionProposal = {
+  id: string;
+  session_id: string;
+  action_type:
+    | "read_file"
+    | "generate_preview"
+    | "explain_code"
+    | "write_file"
+    | "run_command"
+    | "install_package"
+    | "delete_file"
+    | "github_issue"
+    | "deploy";
+  risk_level: "safe" | "confirm" | "danger";
+  payload: Record<string, unknown>;
+  description: string;
+  approved_by_user: boolean;
+  rejected: boolean;
+  executed: boolean;
+  created_at: string;
+  expires_at: string;
 };
