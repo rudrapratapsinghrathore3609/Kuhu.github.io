@@ -35,6 +35,89 @@
   max-height: 260px;
   overflow: auto;
 }
+.action-improvements .source-quality-card {
+  position: relative;
+  gap: 7px;
+}
+.action-improvements .source-quality-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  margin-bottom: 2px;
+}
+.action-improvements .source-quality-head img,
+.action-improvements .source-quality-icon {
+  flex: 0 0 auto;
+}
+.action-improvements .source-quality-icon {
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  height: 18px;
+  border-radius: 5px;
+  background: #243044;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 850;
+}
+.action-improvements .source-quality-domain {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 11px;
+}
+.action-improvements .source-quality-badge {
+  flex: 0 0 auto;
+  margin-left: auto;
+  border-radius: 999px;
+  padding: 3px 7px;
+  font-size: 10px;
+  font-weight: 850;
+}
+.action-improvements .source-quality-badge.authoritative {
+  color: #b7f7d7;
+  background: rgba(88, 214, 163, .18);
+  border: 1px solid rgba(88, 214, 163, .3);
+}
+.action-improvements .source-quality-badge.news {
+  color: #c9e4ff;
+  background: rgba(121, 184, 255, .18);
+  border: 1px solid rgba(121, 184, 255, .3);
+}
+.action-improvements .source-quality-badge.community {
+  color: #ffe6a8;
+  background: rgba(245, 198, 106, .18);
+  border: 1px solid rgba(245, 198, 106, .32);
+}
+.action-improvements .source-quality-badge.unknown {
+  color: #cbd5e1;
+  background: rgba(148, 163, 184, .14);
+  border: 1px solid rgba(148, 163, 184, .25);
+}
+.action-improvements .source-quality-excerpt {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+  border-left: 2px solid rgba(121, 184, 255, .28);
+  padding-left: 8px;
+}
+.action-improvements .source-quality-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  color: var(--muted-2);
+  font-size: 11px;
+  border-top: 1px solid rgba(255,255,255,.06);
+  padding-top: 7px;
+  margin-top: 2px;
+}
+.action-improvements .source-card--model {
+  border-color: rgba(245, 198, 106, .5);
+  background: linear-gradient(180deg, rgba(38, 30, 18, .95), rgba(18, 22, 29, .98));
+}
 .action-improvements .action-recovery {
   display: flex;
   flex-wrap: wrap;
@@ -127,6 +210,13 @@
   }
   .action-improvements .source-card-grid:not(.expanded) {
     max-height: 190px;
+  }
+  .action-improvements .source-quality-head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .action-improvements .source-quality-badge {
+    margin-left: 0;
   }
 }
 @media (prefers-reduced-motion: reduce) {
