@@ -1,6 +1,8 @@
 import OpenAI from "openai";
 import { providerHealth } from "./providerHealth";
 
+const PROVIDER_TIMEOUT_MS = Number(process.env.PROVIDER_TIMEOUT_MS || 25_000);
+
 export type Account = {
   id?: string;
   label?: string;
@@ -19,7 +21,8 @@ export function createOpenAICompatibleClient(account: Account) {
   return new OpenAI({
     apiKey: account.api_key_encrypted || "ollama",
     baseURL: account.base_url || process.env.DEFAULT_OPENAI_COMPAT_BASE_URL,
-    defaultHeaders: compatibleHeaders(account)
+    defaultHeaders: compatibleHeaders(account),
+    timeout: PROVIDER_TIMEOUT_MS
   });
 }
 
@@ -92,33 +95,39 @@ async function* streamAnthropic(account: Account, messages: ChatMessage[]) {
   const conversational = messages
     .filter(message => message.role !== "system")
     .map(message => ({ role: message.role === "assistant" ? "assistant" : "user", content: stringifyContent(message.content) }));
+  const controller = timeoutController();
 
-  const response = await fetch(`${account.base_url || "https://api.anthropic.com/v1"}/messages`, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-api-key": account.api_key_encrypted, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: account.model || "claude-3-5-haiku-latest", max_tokens: 1200, stream: true, system: typeof system === "string" ? system : stringifyContent(system ?? ""), messages: conversational.length ? conversational : [{ role: "user", content: "Hello" }] })
-  });
+  try {
+    const response = await fetch(`${account.base_url || "https://api.anthropic.com/v1"}/messages`, {
+      method: "POST",
+      signal: controller.signal,
+      headers: { "content-type": "application/json", "x-api-key": account.api_key_encrypted, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: account.model || "claude-3-5-haiku-latest", max_tokens: 1200, stream: true, system: typeof system === "string" ? system : stringifyContent(system ?? ""), messages: conversational.length ? conversational : [{ role: "user", content: "Hello" }] })
+    });
 
-  if (!response.ok || !response.body) throw new Error(await response.text().catch(() => "Claude request failed"));
+    if (!response.ok || !response.body) throw new Error(await response.text().catch(() => "Claude request failed"));
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const events = buffer.split("\n\n");
-    buffer = events.pop() || "";
-    for (const event of events) {
-      const line = event.split("\n").find(item => item.startsWith("data: "));
-      if (!line) continue;
-      const payloadText = line.slice(6);
-      if (payloadText === "[DONE]") return;
-      const payload = JSON.parse(payloadText);
-      const text = payload.delta?.text;
-      if (payload.type === "content_block_delta" && text) yield text;
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split("\n\n");
+      buffer = events.pop() || "";
+      for (const event of events) {
+        const line = event.split("\n").find(item => item.startsWith("data: "));
+        if (!line) continue;
+        const payloadText = line.slice(6);
+        if (payloadText === "[DONE]") return;
+        const payload = JSON.parse(payloadText);
+        const text = payload.delta?.text;
+        if (payload.type === "content_block_delta" && text) yield text;
+      }
     }
+  } finally {
+    clearTimeout(controller.timeoutId);
   }
 }
 
@@ -128,20 +137,26 @@ async function* streamGemini(account: Account, messages: ChatMessage[]) {
   const url = `${baseUrl.replace(/\/$/, "")}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(account.api_key_encrypted)}`;
   const system = messages.find(message => message.role === "system")?.content;
   const contents = messages.filter(message => message.role !== "system").map(message => ({ role: message.role === "assistant" ? "model" : "user", parts: [{ text: stringifyContent(message.content) }] }));
+  const controller = timeoutController();
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ systemInstruction: { parts: [{ text: stringifyContent(system ?? "") }] }, contents: contents.length ? contents : [{ role: "user", parts: [{ text: "Hello" }] }], generationConfig: { temperature: 0.7, maxOutputTokens: 2048 } })
-  });
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      signal: controller.signal,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ systemInstruction: { parts: [{ text: stringifyContent(system ?? "") }] }, contents: contents.length ? contents : [{ role: "user", parts: [{ text: "Hello" }] }], generationConfig: { temperature: 0.7, maxOutputTokens: 2048 } })
+    });
 
-  if (!response.ok) throw new Error(await response.text().catch(() => "Gemini request failed"));
-  const data = await response.json();
-  const candidate = data.candidates?.[0];
-  const text = candidate?.content?.parts?.map((part: { text?: string }) => part.text || "").join("").trim();
-  if (text) yield text;
-  const finishReason = candidate?.finishReason;
-  if (finishReason && finishReason !== "STOP") yield `\n\n[Model stopped early: ${finishReason}. Ask me to continue, or switch accounts if this keeps happening.]`;
+    if (!response.ok) throw new Error(await response.text().catch(() => "Gemini request failed"));
+    const data = await response.json();
+    const candidate = data.candidates?.[0];
+    const text = candidate?.content?.parts?.map((part: { text?: string }) => part.text || "").join("").trim();
+    if (text) yield text;
+    const finishReason = candidate?.finishReason;
+    if (finishReason && finishReason !== "STOP") yield `\n\n[Model stopped early: ${finishReason}. Use Continue or switch to a fallback provider if this keeps happening.]`;
+  } finally {
+    clearTimeout(controller.timeoutId);
+  }
 }
 
 function envFallbackAccounts(primary: Account): Account[] {
@@ -184,6 +199,12 @@ function firstEnv(...names: string[]) {
   return "";
 }
 
+function timeoutController() {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
+  return Object.assign(controller, { timeoutId });
+}
+
 function isUsableAccount(account: Account) {
   if (!account.base_url || !account.model) return false;
   if (account.provider === "compatible" && /11434/.test(account.base_url)) return true;
@@ -205,6 +226,7 @@ function maskKey(value?: string) {
 
 function friendlyProviderError(error: unknown) {
   const raw = error instanceof Error ? error.message : String(error || "request failed");
+  if (/abort|timeout|timed out/i.test(raw)) return `provider timed out after ${Math.round(PROVIDER_TIMEOUT_MS / 1000)}s.`;
   if (/api key|invalid.*key|unauthorized|permission|401|403/i.test(raw)) return "API key is invalid or not allowed for this model.";
   if (/quota|billing|429|rate/i.test(raw)) return "quota, billing, or rate limit blocked the request.";
   if (/model|not found|404/i.test(raw)) return "model name is not available for this provider.";
