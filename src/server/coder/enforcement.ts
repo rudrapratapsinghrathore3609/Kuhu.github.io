@@ -1,4 +1,5 @@
 import type express from "express";
+import { Buffer } from "node:buffer";
 import { supabaseAdmin } from "../supabase";
 import { executeCoderAction, type CoderActionType, type CoderRiskLevel, type CoderProposal } from "./sandbox";
 
@@ -20,6 +21,25 @@ type RegisterCoderRoutesOptions = {
 
 export function registerCoderRoutes(app: express.Express, options: RegisterCoderRoutesOptions) {
   const getUserId = options.userId;
+
+  app.post("/api/automations/whatsapp", async (req, res, next) => {
+    try {
+      const taskTitle = String(req.body.taskTitle || "").trim();
+      const customMessage = String(req.body.message || "").trim();
+      const taskStatus = String(req.body.status || "todo").trim();
+      const body = customMessage || `AI Agents task reminder\n\nTask: ${taskTitle}\nStatus: ${taskStatus}`;
+
+      if (!body.trim() || (!taskTitle && !customMessage)) {
+        res.status(400).json({ error: "Task title or message is required" });
+        return;
+      }
+
+      const result = await sendWhatsAppMessage(body.slice(0, 1500));
+      res.json({ ok: true, detail: `WhatsApp message sent with ${result.provider}.`, result });
+    } catch (error) {
+      next(error);
+    }
+  });
 
   app.get("/api/coder/proposals", async (req, res, next) => {
     try {
@@ -125,6 +145,71 @@ export function registerCoderRoutes(app: express.Express, options: RegisterCoder
       next(error);
     }
   });
+}
+
+function firstEnv(...names: string[]) {
+  for (const name of names) {
+    const value = process.env[name]?.trim();
+    if (value && !isPlaceholder(value)) return value;
+  }
+  return "";
+}
+
+function isPlaceholder(value: string) {
+  const lowered = value.toLowerCase();
+  return ["your api key", "api key", "placeholder", "changeme", "your whatsapp token", "your twilio token"].includes(lowered) || lowered.startsWith("your-") || lowered.startsWith("replace");
+}
+
+async function sendWhatsAppMessage(body: string) {
+  if (firstEnv("TWILIO_ACCOUNT_SID") && firstEnv("TWILIO_AUTH_TOKEN")) return sendTwilioWhatsApp(body);
+  if (firstEnv("WHATSAPP_CLOUD_ACCESS_TOKEN") && firstEnv("WHATSAPP_CLOUD_PHONE_NUMBER_ID")) return sendMetaWhatsApp(body);
+  throw new Error("WhatsApp is not configured. Add Twilio or Meta WhatsApp env vars in Render.");
+}
+
+async function sendTwilioWhatsApp(body: string) {
+  const sid = firstEnv("TWILIO_ACCOUNT_SID");
+  const token = firstEnv("TWILIO_AUTH_TOKEN");
+  const from = ensureWhatsAppPrefix(firstEnv("TWILIO_WHATSAPP_FROM"));
+  const to = ensureWhatsAppPrefix(firstEnv("TWILIO_WHATSAPP_TO"));
+  if (!sid || !token || !from || !to) throw new Error("Missing Twilio WhatsApp env vars.");
+
+  const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(sid)}/Messages.json`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams({ From: from, To: to, Body: body })
+  });
+
+  const text = await response.text();
+  if (!response.ok) throw new Error(`Twilio WhatsApp failed: ${text.slice(0, 500)}`);
+  const payload = JSON.parse(text) as { sid?: string; status?: string };
+  return { provider: "Twilio", id: payload.sid, status: payload.status };
+}
+
+async function sendMetaWhatsApp(body: string) {
+  const token = firstEnv("WHATSAPP_CLOUD_ACCESS_TOKEN");
+  const phoneNumberId = firstEnv("WHATSAPP_CLOUD_PHONE_NUMBER_ID");
+  const to = firstEnv("WHATSAPP_TO").replace(/[^\d]/g, "");
+  const version = firstEnv("WHATSAPP_CLOUD_API_VERSION") || "v20.0";
+  if (!token || !phoneNumberId || !to) throw new Error("Missing Meta WhatsApp Cloud API env vars.");
+
+  const response = await fetch(`https://graph.facebook.com/${version}/${encodeURIComponent(phoneNumberId)}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ messaging_product: "whatsapp", to, type: "text", text: { body } })
+  });
+
+  const text = await response.text();
+  if (!response.ok) throw new Error(`Meta WhatsApp failed: ${text.slice(0, 500)}`);
+  const payload = JSON.parse(text) as { messages?: Array<{ id?: string }> };
+  return { provider: "Meta Cloud API", id: payload.messages?.[0]?.id, status: "sent" };
+}
+
+function ensureWhatsAppPrefix(value: string) {
+  if (!value) return "";
+  return value.startsWith("whatsapp:") ? value : `whatsapp:${value}`;
 }
 
 function sanitizePayload(payload: unknown): Record<string, unknown> {
