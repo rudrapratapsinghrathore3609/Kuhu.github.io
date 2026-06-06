@@ -12,6 +12,7 @@ import { learnFromMessage } from "./memory";
 import { buildSystemPrompt, routeAgent } from "./orchestrator";
 import { streamModel, testModelConnection, type Account } from "./providers";
 import { createUserSupabase } from "./supabase";
+import { registerCoderRoutes } from "./coder/enforcement";
 
 dotenv.config();
 
@@ -226,6 +227,8 @@ app.get("/api/deploy-check", (_req, res) => res.json({ checks: [
   { name: "Daily quota guard", ok: true, detail: `${sharedDailyRequestLimit} requests/day and ${sharedDailyTokenLimit} estimated tokens/day per user` },
   { name: "Frontend build", ok: fs.existsSync(distPath), detail: fs.existsSync(distPath) ? "dist found" : "dist missing until build runs" }
 ] }));
+
+registerCoderRoutes(app, { userId });
 
 app.post("/api/chat/stream", async (req, res, next) => {
   try {
