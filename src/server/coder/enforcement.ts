@@ -173,13 +173,22 @@ async function sendTwilioWhatsApp(body: string) {
   const to = ensureWhatsAppPrefix(firstEnv("TWILIO_WHATSAPP_TO"));
   if (!sid || !token || !from || !to) throw new Error("Missing Twilio WhatsApp env vars.");
 
+  const form = new URLSearchParams({ From: from, To: to });
+  const contentSid = firstEnv("TWILIO_CONTENT_SID");
+  if (contentSid) {
+    form.set("ContentSid", contentSid);
+    form.set("ContentVariables", buildTwilioContentVariables(body));
+  } else {
+    form.set("Body", body);
+  }
+
   const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(sid)}/Messages.json`, {
     method: "POST",
     headers: {
       Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}`,
       "Content-Type": "application/x-www-form-urlencoded"
     },
-    body: new URLSearchParams({ From: from, To: to, Body: body })
+    body: form
   });
 
   const text = await response.text();
@@ -210,6 +219,16 @@ async function sendMetaWhatsApp(body: string) {
 function ensureWhatsAppPrefix(value: string) {
   if (!value) return "";
   return value.startsWith("whatsapp:") ? value : `whatsapp:${value}`;
+}
+
+function buildTwilioContentVariables(body: string) {
+  const custom = firstEnv("TWILIO_CONTENT_VARIABLES");
+  if (custom) return custom;
+  const now = new Date();
+  return JSON.stringify({
+    "1": now.toLocaleDateString("en-IN"),
+    "2": body.slice(0, 80) || now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })
+  });
 }
 
 function sanitizePayload(payload: unknown): Record<string, unknown> {
