@@ -21,6 +21,7 @@ type RegisterCoderRoutesOptions = {
 
 export function registerCoderRoutes(app: express.Express, options: RegisterCoderRoutesOptions) {
   const getUserId = options.userId;
+  startDailyNewsScheduler();
 
   app.post("/api/automations/whatsapp", async (req, res, next) => {
     try {
@@ -36,6 +37,15 @@ export function registerCoderRoutes(app: express.Express, options: RegisterCoder
 
       const result = await sendWhatsAppMessage(body.slice(0, 1500));
       res.json({ ok: true, detail: `WhatsApp message sent with ${result.provider}.`, result });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/automations/daily-news/test", async (_req, res, next) => {
+    try {
+      const result = await sendDailyNewsWhatsApp();
+      res.json({ ok: true, detail: "Daily news sent to WhatsApp.", result });
     } catch (error) {
       next(error);
     }
@@ -166,6 +176,104 @@ async function sendWhatsAppMessage(body: string) {
   throw new Error("WhatsApp is not configured. Add Twilio or Meta WhatsApp env vars in Render.");
 }
 
+let dailyNewsSchedulerStarted = false;
+let lastDailyNewsKey = "";
+
+function startDailyNewsScheduler() {
+  if (dailyNewsSchedulerStarted) return;
+  dailyNewsSchedulerStarted = true;
+  setInterval(() => {
+    void maybeSendDailyNews();
+  }, 60_000).unref?.();
+  void maybeSendDailyNews();
+}
+
+async function maybeSendDailyNews() {
+  if (firstEnv("DAILY_NEWS_WHATSAPP_ENABLED").toLowerCase() === "false") return;
+  if (!whatsappConfigured()) return;
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(now);
+  const value = (type: string) => parts.find(part => part.type === type)?.value || "";
+  const key = `${value("year")}-${value("month")}-${value("day")}`;
+  if (value("hour") !== "09" || value("minute") !== "00" || lastDailyNewsKey === key) return;
+  lastDailyNewsKey = key;
+  try {
+    await sendDailyNewsWhatsApp();
+    console.log(`Daily news WhatsApp sent for ${key}`);
+  } catch (error) {
+    lastDailyNewsKey = "";
+    console.error("Daily news WhatsApp failed", error);
+  }
+}
+
+function whatsappConfigured() {
+  return Boolean(
+    firstEnv("TWILIO_ACCOUNT_SID") &&
+    firstEnv("TWILIO_AUTH_TOKEN") &&
+    firstEnv("TWILIO_WHATSAPP_FROM") &&
+    firstEnv("TWILIO_WHATSAPP_TO")
+  ) || Boolean(
+    firstEnv("WHATSAPP_CLOUD_ACCESS_TOKEN") &&
+    firstEnv("WHATSAPP_CLOUD_PHONE_NUMBER_ID") &&
+    firstEnv("WHATSAPP_TO")
+  );
+}
+
+async function sendDailyNewsWhatsApp() {
+  const brief = await buildDailyNewsBrief();
+  return sendWhatsAppMessage(brief.slice(0, 3000));
+}
+
+async function buildDailyNewsBrief() {
+  const feeds = [
+    { section: "World", url: "https://feeds.bbci.co.uk/news/world/rss.xml" },
+    { section: "India", url: "https://www.thehindu.com/news/national/feeder/default.rss" },
+    { section: "Business", url: "https://feeds.bbci.co.uk/news/business/rss.xml" },
+    { section: "Technology", url: "https://feeds.bbci.co.uk/news/technology/rss.xml" },
+    { section: "Science", url: "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml" },
+    { section: "Sports", url: "https://feeds.bbci.co.uk/sport/rss.xml" }
+  ];
+  const sections = await Promise.all(feeds.map(async feed => {
+    const items = await fetchRssItems(feed.url);
+    return { ...feed, item: items[0] };
+  }));
+  const today = new Intl.DateTimeFormat("en-IN", { dateStyle: "full", timeZone: "Asia/Kolkata" }).format(new Date());
+  const lines = [`AI Agents Daily News - ${today}`, "Top updates with source links:", ""];
+
+  for (const section of sections) {
+    if (!section.item) continue;
+    lines.push(`${section.section}: ${section.item.title}`);
+    lines.push(section.item.link);
+    lines.push("");
+  }
+
+  lines.push("Source standard: BBC RSS + The Hindu national feed; source links are included directly above.");
+  return lines.join("\n").trim();
+}
+
+async function fetchRssItems(url: string) {
+  try {
+    const response = await fetch(url, { headers: { "User-Agent": "AI Agents daily news bot" } });
+    if (!response.ok) throw new Error(`RSS failed ${response.status}`);
+    const xml = await response.text();
+    return Array.from(xml.matchAll(/<item\b[\s\S]*?<\/item>/gi)).map(match => ({
+      title: decodeXml(readXmlTag(match[0], "title")),
+      link: decodeXml(readXmlTag(match[0], "link"))
+    })).filter(item => item.title && item.link).slice(0, 3);
+  } catch (error) {
+    console.warn(`Daily news feed failed: ${url}`, error);
+    return [];
+  }
+}
+
 async function sendTwilioWhatsApp(body: string) {
   const sid = firstEnv("TWILIO_ACCOUNT_SID");
   const token = firstEnv("TWILIO_AUTH_TOKEN");
@@ -224,11 +332,24 @@ function ensureWhatsAppPrefix(value: string) {
 function buildTwilioContentVariables(body: string) {
   const custom = firstEnv("TWILIO_CONTENT_VARIABLES");
   if (custom) return custom;
-  const now = new Date();
   return JSON.stringify({
-    "1": now.toLocaleDateString("en-IN"),
-    "2": body.slice(0, 80) || now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })
+    "1": body.slice(0, 1400),
+    "2": ""
   });
+}
+
+function readXmlTag(xml: string, tag: string) {
+  const match = xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i"));
+  return (match?.[1] || "").replace(/^<!\[CDATA\[/, "").replace(/\]\]>$/, "").trim();
+}
+
+function decodeXml(value: string) {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
 }
 
 function sanitizePayload(payload: unknown): Record<string, unknown> {
