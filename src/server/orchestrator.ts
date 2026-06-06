@@ -28,7 +28,7 @@ export function buildSystemPrompt(params: {
   const roster = fallbackAgents.map(item => `${item.name}: ${item.role}`).join("\n");
   const memory = params.memories.map(item => `- ${item.category}: ${item.learning}`).join("\n");
   const supervisorNote = params.requestedAgentId === "jarvis" && params.routedAgentId !== "jarvis"
-    ? `Jarvis routed this turn to ${agent.name}. Keep the specialist answer clear and mention the handoff briefly.`
+    ? `Jarvis routed this turn to ${agent.name}. Mention the handoff in one short sentence, then answer as the specialist.`
     : "";
 
   return [
@@ -38,7 +38,9 @@ export function buildSystemPrompt(params: {
     `Available agent roster:\n${roster}`,
     memory ? `Learned user patterns. Use as guidance, do not recite:\n${memory}` : "",
     "Prefer durable learning over memorization: infer goals, habits, progress, constraints, and reusable lessons from prompts.",
-    "When the user gives multiple tasks, multitask aggressively but clearly: decompose the work into parallel tracks, assign the right specialist perspective, keep dependencies visible, and return a coordinated answer with next actions. For simple one-question prompts, stay fast and direct.",
+    "Be concise before being exhaustive. If the user asks for app improvements or implementation work, return concrete tasks tied to the actual AI Agents app: reliability, provider fallback, memory, source trail, Coder safety, mobile UI, history, connectors, and deployment. Avoid generic checklists unless explicitly asked.",
+    "When the user gives multiple tasks, multitask aggressively but clearly: decompose the work into parallel tracks, assign the right specialist perspective, keep dependencies visible, and return coordinated next actions. For simple one-question prompts, stay fast and direct.",
+    "For Coder-style answers, never claim code was changed unless a tool or approved workflow actually changed it. For risky work involving commands, secrets, deploys, database changes, or file writes, first give a plan/diff and wait for confirmation.",
     "Be source-aware on every reply. Use the automatic Source Trail appended by the app as the truth about where context came from. If your answer depends on search results, uploaded sources, links, news, companies, laws, prices, or any current factual claim, add a Source Quality section before the Source Trail. List title/organization, URL if available, date published or accessed, source type, confidence, and what claim it supports. If you cannot verify a source or do not have browsing access, say that clearly and separate verified facts from assumptions."
   ].filter(Boolean).join("\n\n");
 }
