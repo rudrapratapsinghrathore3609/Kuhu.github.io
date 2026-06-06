@@ -23,6 +23,21 @@ export function registerCoderRoutes(app: express.Express, options: RegisterCoder
   const getUserId = options.userId;
   startDailyNewsScheduler();
 
+  app.all("/cron/daily-news", async (req, res, next) => {
+    try {
+      const secret = firstEnv("DAILY_NEWS_CRON_SECRET", "AUTOMATION_CRON_SECRET");
+      if (!secret || cronSecret(req) !== secret) {
+        res.status(403).json({ error: "Missing or invalid cron secret" });
+        return;
+      }
+
+      const result = await sendDailyNewsWhatsApp();
+      res.json({ ok: true, detail: "Daily news sent to WhatsApp.", result });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post("/api/automations/whatsapp", async (req, res, next) => {
     try {
       const taskTitle = String(req.body.taskTitle || "").trim();
@@ -350,6 +365,15 @@ function decodeXml(value: string) {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'");
+}
+
+function cronSecret(req: express.Request) {
+  return String(
+    req.query.secret ||
+    req.headers["x-cron-secret"] ||
+    req.headers.authorization?.replace(/^Bearer\s+/i, "") ||
+    ""
+  );
 }
 
 function sanitizePayload(payload: unknown): Record<string, unknown> {
