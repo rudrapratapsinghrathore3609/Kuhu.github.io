@@ -1,7 +1,8 @@
 import OpenAI from "openai";
 import { providerHealth } from "./providerHealth";
 
-const PROVIDER_TIMEOUT_MS = Number(process.env.PROVIDER_TIMEOUT_MS || 25_000);
+const PROVIDER_TIMEOUT_MS = Number(process.env.PROVIDER_TIMEOUT_MS || 12_000);
+const PROVIDER_ORDER = ["gemini", "groq", "together", "openrouter", "openai", "compatible", "anthropic", "claude"];
 
 export type Account = {
   id?: string;
@@ -27,19 +28,24 @@ export function createOpenAICompatibleClient(account: Account) {
 }
 
 export async function* streamModel(account: Account, messages: ChatMessage[]) {
-  const attempts = uniqueAccounts([account, ...envFallbackAccounts(account)]).filter(isUsableAccount);
+  const attempts = orderAccounts(uniqueAccounts([account, ...envFallbackAccounts(account)]).filter(isUsableAccount), account);
   const healthyAttempts = attempts.filter(candidate => providerHealth.canUse(candidate));
   const failures: string[] = [];
 
   for (const candidate of healthyAttempts) {
+    const started = Date.now();
     try {
       yield* streamSingleProvider(candidate, messages);
       providerHealth.recordSuccess(candidate);
+      console.log(JSON.stringify({ event: "provider_success", provider: providerName(candidate), latencyMs: Date.now() - started }));
       return;
     } catch (error) {
       const failure = friendlyProviderError(error);
       providerHealth.recordFailure(candidate, failure);
       failures.push(`${candidate.label || candidate.provider}: ${failure}`);
+      const next = healthyAttempts[healthyAttempts.indexOf(candidate) + 1];
+      console.warn(JSON.stringify({ event: "provider_fallback", provider: providerName(candidate), reason: failure, latencyMs: Date.now() - started, fallbackTo: next ? providerName(next) : "none" }));
+      if (next) yield `\n\nI had trouble reaching ${candidate.label || candidate.provider}. Trying ${next.label || next.provider} instead...\n\n`;
     }
   }
 
@@ -176,6 +182,27 @@ function envFallbackAccounts(primary: Account): Account[] {
   return accounts.filter(candidate => candidate.provider !== primary.provider || candidate.base_url !== primary.base_url || candidate.model !== primary.model);
 }
 
+function orderAccounts(accounts: Account[], primary: Account) {
+  const forcePrimary = process.env.RESPECT_SELECTED_PROVIDER === "true";
+  if (forcePrimary) return accounts;
+  return [...accounts].sort((a, b) => providerRank(a) - providerRank(b) || selectedTieBreak(a, b, primary));
+}
+
+function providerRank(account: Account) {
+  const index = PROVIDER_ORDER.indexOf(account.provider);
+  return index >= 0 ? index : PROVIDER_ORDER.length;
+}
+
+function selectedTieBreak(a: Account, b: Account, primary: Account) {
+  const aSelected = sameProviderTarget(a, primary) ? -1 : 0;
+  const bSelected = sameProviderTarget(b, primary) ? -1 : 0;
+  return aSelected - bSelected;
+}
+
+function sameProviderTarget(a: Account, b: Account) {
+  return a.provider === b.provider && a.base_url === b.base_url && a.model === b.model;
+}
+
 function uniqueAccounts(accounts: Account[]) {
   const seen = new Set<string>();
   return accounts.filter(account => {
@@ -184,6 +211,10 @@ function uniqueAccounts(accounts: Account[]) {
     seen.add(key);
     return true;
   });
+}
+
+function providerName(account: Account) {
+  return `${account.label || account.provider} (${account.model})`;
 }
 
 function compatibleHeaders(account: Account) {
