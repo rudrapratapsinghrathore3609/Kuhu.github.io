@@ -2,7 +2,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
 import fs from "node:fs";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import multer from "multer";
@@ -24,10 +24,34 @@ const __dirname = path.dirname(__filename);
 const distPath = path.resolve(__dirname, "../../dist");
 const sharedDailyRequestLimit = Number(process.env.SHARED_AI_DAILY_REQUEST_LIMIT || 30);
 const sharedDailyTokenLimit = Number(process.env.SHARED_AI_DAILY_TOKEN_LIMIT || 60000);
+const dailyNewsCronSecret = firstEnv("DAILY_NEWS_CRON_SECRET", "AUTOMATION_CRON_SECRET");
+const startedAt = new Date().toISOString();
+const buildSha = firstEnv("RENDER_GIT_COMMIT", "GIT_COMMIT", "COMMIT_SHA") || "local";
 
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 app.get("/health", (_req, res) => res.json({ ok: true }));
+app.get("/healthz", (_req, res) => res.json({
+  ok: true,
+  app: "AI Agents",
+  startedAt,
+  buildSha,
+  buildTime: process.env.BUILD_TIME || process.env.RENDER_DEPLOY_CREATED_AT || "unknown",
+  nodeEnv: process.env.NODE_ENV || "development",
+  dist: fs.existsSync(distPath)
+}));
+app.all("/cron/daily-news", async (req, res, next) => {
+  try {
+    if (!matchesSecret(cronSecret(req), dailyNewsCronSecret)) {
+      res.status(403).json({ error: "Missing or invalid cron secret" });
+      return;
+    }
+    const result = await sendDailyNewsUpdate();
+    res.json({ ok: true, detail: `Daily news sent with ${result.provider}.`, result });
+  } catch (error) {
+    next(error);
+  }
+});
 app.use("/api", requireAuth);
 
 function authed(req: express.Request) { return req as AuthedRequest; }
@@ -225,10 +249,62 @@ app.get("/api/deploy-check", (_req, res) => res.json({ checks: [
   { name: "Shared Groq", ok: Boolean(firstEnv("SHARED_GROQ_API_KEY", "GROQ_API_KEY")), detail: firstEnv("SHARED_GROQ_API_KEY", "GROQ_API_KEY") ? "Configured fallback" : "Optional fallback missing" },
   { name: "Shared OpenRouter", ok: Boolean(firstEnv("SHARED_OPENROUTER_API_KEY", "OPENROUTER_API_KEY")), detail: firstEnv("SHARED_OPENROUTER_API_KEY", "OPENROUTER_API_KEY") ? "Configured fallback" : "Optional fallback missing" },
   { name: "Daily quota guard", ok: true, detail: `${sharedDailyRequestLimit} requests/day and ${sharedDailyTokenLimit} estimated tokens/day per user` },
+  { name: "Free Telegram automation", ok: telegramConfigured(), detail: telegramConfigured() ? "Configured for daily updates" : "Optional: add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID for free daily updates" },
+  { name: "WhatsApp automation", ok: whatsappConfigured(), detail: whatsappConfigured() ? `Configured with ${whatsappProvider()} as optional fallback` : "Optional legacy fallback; Telegram is preferred for free daily updates" },
+  { name: "Daily news cron", ok: Boolean(dailyNewsCronSecret), detail: dailyNewsCronSecret ? "Use /cron/daily-news at 9 AM IST with the cron secret" : "Add DAILY_NEWS_CRON_SECRET for scheduled delivery" },
+  { name: "Vite secret audit", ok: viteSecretAudit().ok, detail: viteSecretAudit().detail },
+  { name: "Deploy status", ok: true, detail: `healthz ready, build SHA ${buildSha}` },
   { name: "Frontend build", ok: fs.existsSync(distPath), detail: fs.existsSync(distPath) ? "dist found" : "dist missing until build runs" }
 ] }));
 
 registerCoderRoutes(app, { userId });
+
+app.post("/api/automations/whatsapp", async (req, res, next) => {
+  try {
+    const taskTitle = String(req.body.taskTitle || "").trim();
+    const customMessage = String(req.body.message || "").trim();
+    const taskStatus = String(req.body.status || "todo").trim();
+    const body = customMessage || `AI Agents task reminder\n\nTask: ${taskTitle}\nStatus: ${taskStatus}\nRequested by: ${userEmail(req) || "signed-in user"}`;
+
+    if (!body.trim() || (!taskTitle && !customMessage)) {
+      res.status(400).json({ error: "Task title or message is required" });
+      return;
+    }
+
+    const result = await sendWhatsAppMessage(body.slice(0, 1500));
+    res.json({ ok: true, detail: `WhatsApp message sent with ${result.provider}.`, result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/automations/telegram", async (req, res, next) => {
+  try {
+    const taskTitle = String(req.body.taskTitle || "").trim();
+    const customMessage = String(req.body.message || "").trim();
+    const taskStatus = String(req.body.status || "todo").trim();
+    const body = customMessage || `AI Agents task reminder\n\nTask: ${taskTitle}\nStatus: ${taskStatus}\nRequested by: ${userEmail(req) || "signed-in user"}`;
+
+    if (!body.trim() || (!taskTitle && !customMessage)) {
+      res.status(400).json({ error: "Task title or message is required" });
+      return;
+    }
+
+    const result = await sendTelegramMessage(body.slice(0, 3900));
+    res.json({ ok: true, detail: `Telegram message sent.`, result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/automations/daily-news/test", async (_req, res, next) => {
+  try {
+    const result = await sendDailyNewsUpdate();
+    res.json({ ok: true, detail: `Daily news sent with ${result.provider}.`, result });
+  } catch (error) {
+    next(error);
+  }
+});
 
 app.post("/api/chat/stream", async (req, res, next) => {
   try {
@@ -251,9 +327,11 @@ app.post("/api/chat/stream", async (req, res, next) => {
       answer += token;
       res.write(`data: ${JSON.stringify({ type: "token", token })}\n\n`);
     }
-    const sourceTrail = buildSourceTrail(account, memories.length, connectorContext.sources);
-    answer += sourceTrail;
-    res.write(`data: ${JSON.stringify({ type: "token", token: sourceTrail })}\n\n`);
+    const sourceTrail = shouldShowSourceTrail(memories.length, connectorContext.sources) ? buildSourceTrail(account, memories.length, connectorContext.sources) : "";
+    if (sourceTrail) {
+      answer += sourceTrail;
+      res.write(`data: ${JSON.stringify({ type: "token", token: sourceTrail })}\n\n`);
+    }
     const assistantMessage = await insertMessage(req, conversationId, routed.id, "assistant", answer);
     await safeLearnFromMessage({ userId: uid, agentId: routed.id, messageId: userMessage.id, userText, fileNames: [] });
     await userDb(req).from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", conversationId);
@@ -270,7 +348,11 @@ async function checkQuota(req: express.Request, userText: string) {
   if (isQuotaExempt(req)) return;
   const tokenEstimate = Math.max(1, Math.ceil(userText.length / 4));
   const { data, error } = await userDb(req).rpc("increment_ai_daily_usage", { target_user_id: userId(req), request_increment: 1, token_increment: tokenEstimate });
-  if (error) { console.warn("Daily quota check failed open", error.message); return; }
+  if (error) {
+    console.warn("Daily quota check failed", error.message);
+    if (process.env.SHARED_AI_QUOTA_FAIL_OPEN === "true") return;
+    throw new Error("Daily quota guard is not ready. Run supabase/ai_daily_usage.sql, then retry.");
+  }
   const row = Array.isArray(data) ? data[0] : data;
   const requestCount = Number(row?.request_count ?? 0);
   const tokenCount = Number(row?.token_estimate ?? 0);
@@ -282,6 +364,226 @@ async function checkQuota(req: express.Request, userText: string) {
 function isQuotaExempt(req: express.Request) {
   const allowlist = String(process.env.SHARED_AI_LIMIT_EXEMPT_EMAILS || "").split(",").map(item => item.trim().toLowerCase()).filter(Boolean);
   return allowlist.includes(userEmail(req));
+}
+
+function whatsappProvider() {
+  if (firstEnv("TWILIO_ACCOUNT_SID") && firstEnv("TWILIO_AUTH_TOKEN")) return "Twilio";
+  if (firstEnv("WHATSAPP_CLOUD_ACCESS_TOKEN") && firstEnv("WHATSAPP_CLOUD_PHONE_NUMBER_ID")) return "Meta Cloud API";
+  return "none";
+}
+
+function whatsappConfigured() {
+  const twilioReady = Boolean(
+    firstEnv("TWILIO_ACCOUNT_SID") &&
+    firstEnv("TWILIO_AUTH_TOKEN") &&
+    firstEnv("TWILIO_WHATSAPP_FROM") &&
+    firstEnv("TWILIO_WHATSAPP_TO")
+  );
+  const metaReady = Boolean(
+    firstEnv("WHATSAPP_CLOUD_ACCESS_TOKEN") &&
+    firstEnv("WHATSAPP_CLOUD_PHONE_NUMBER_ID") &&
+    firstEnv("WHATSAPP_TO")
+  );
+  return twilioReady || metaReady;
+}
+
+async function sendWhatsAppMessage(body: string) {
+  if (firstEnv("TWILIO_ACCOUNT_SID") && firstEnv("TWILIO_AUTH_TOKEN")) {
+    return sendTwilioWhatsApp(body);
+  }
+  if (firstEnv("WHATSAPP_CLOUD_ACCESS_TOKEN") && firstEnv("WHATSAPP_CLOUD_PHONE_NUMBER_ID")) {
+    return sendMetaWhatsApp(body);
+  }
+  throw new Error("WhatsApp is not configured. Add Twilio or Meta WhatsApp env vars in Render.");
+}
+
+async function sendDailyNewsUpdate() {
+  const brief = await buildDailyNewsBrief();
+  if (telegramConfigured()) return sendTelegramMessage(brief.slice(0, 3900));
+  return sendWhatsAppMessage(brief.slice(0, 3000));
+}
+
+function telegramConfigured() {
+  return Boolean(firstEnv("TELEGRAM_BOT_TOKEN") && firstEnv("TELEGRAM_CHAT_ID"));
+}
+
+async function sendTelegramMessage(body: string) {
+  const token = firstEnv("TELEGRAM_BOT_TOKEN");
+  const chatId = firstEnv("TELEGRAM_CHAT_ID");
+  if (!token || !chatId) throw new Error("Telegram is not configured. Add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in Render.");
+
+  const response = await fetch(`https://api.telegram.org/bot${encodeURIComponent(token)}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text: body, disable_web_page_preview: false })
+  });
+
+  const text = await response.text();
+  if (!response.ok) throw new Error(`Telegram failed: ${text.slice(0, 500)}`);
+  const payload = JSON.parse(text) as { result?: { message_id?: number } };
+  return { provider: "Telegram", id: payload.result?.message_id, status: "sent" };
+}
+
+async function buildDailyNewsBrief() {
+  const feeds = [
+    { section: "World", url: "https://feeds.bbci.co.uk/news/world/rss.xml" },
+    { section: "India", url: "https://www.thehindu.com/news/national/feeder/default.rss" },
+    { section: "Business", url: "https://feeds.bbci.co.uk/news/business/rss.xml" },
+    { section: "Technology", url: "https://feeds.bbci.co.uk/news/technology/rss.xml" },
+    { section: "Science", url: "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml" },
+    { section: "Sports", url: "https://feeds.bbci.co.uk/sport/rss.xml" }
+  ];
+  const sections = await Promise.all(feeds.map(async feed => {
+    const items = await fetchRssItems(feed.url);
+    return { ...feed, item: items[0] };
+  }));
+  const today = new Intl.DateTimeFormat("en-IN", { dateStyle: "full", timeZone: "Asia/Kolkata" }).format(new Date());
+  const lines = [
+    `AI Agents Daily News - ${today}`,
+    "Top updates with source links:",
+    ""
+  ];
+
+  for (const section of sections) {
+    if (!section.item) continue;
+    lines.push(`${section.section}: ${section.item.title}`);
+    lines.push(section.item.link);
+    lines.push("");
+  }
+
+  lines.push("Source standard: BBC RSS + The Hindu national feed; links are included directly above.");
+  return lines.join("\n").trim();
+}
+
+async function fetchRssItems(url: string) {
+  try {
+    const response = await fetch(url, { headers: { "User-Agent": "AI Agents daily news bot" } });
+    if (!response.ok) throw new Error(`RSS failed ${response.status}`);
+    const xml = await response.text();
+    return Array.from(xml.matchAll(/<item\b[\s\S]*?<\/item>/gi)).map(match => ({
+      title: decodeXml(readXmlTag(match[0], "title")),
+      link: decodeXml(readXmlTag(match[0], "link"))
+    })).filter(item => item.title && item.link).slice(0, 3);
+  } catch (error) {
+    console.warn(`Daily news feed failed: ${url}`, errorMessage(error));
+    return [];
+  }
+}
+
+async function sendTwilioWhatsApp(body: string) {
+  const sid = firstEnv("TWILIO_ACCOUNT_SID");
+  const token = firstEnv("TWILIO_AUTH_TOKEN");
+  const from = ensureWhatsAppPrefix(firstEnv("TWILIO_WHATSAPP_FROM"));
+  const to = ensureWhatsAppPrefix(firstEnv("TWILIO_WHATSAPP_TO"));
+  if (!sid || !token || !from || !to) throw new Error("Missing Twilio WhatsApp env vars.");
+
+  const form = new URLSearchParams({ From: from, To: to });
+  const contentSid = firstEnv("TWILIO_CONTENT_SID");
+  if (contentSid) {
+    form.set("ContentSid", contentSid);
+    form.set("ContentVariables", buildTwilioContentVariables(body));
+  } else {
+    form.set("Body", body);
+  }
+  const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(sid)}/Messages.json`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: form
+  });
+
+  const text = await response.text();
+  if (!response.ok) throw new Error(`Twilio WhatsApp failed: ${text.slice(0, 500)}`);
+  const payload = JSON.parse(text) as { sid?: string; status?: string };
+  return { provider: "Twilio", id: payload.sid, status: payload.status };
+}
+
+async function sendMetaWhatsApp(body: string) {
+  const token = firstEnv("WHATSAPP_CLOUD_ACCESS_TOKEN");
+  const phoneNumberId = firstEnv("WHATSAPP_CLOUD_PHONE_NUMBER_ID");
+  const to = firstEnv("WHATSAPP_TO").replace(/[^\d]/g, "");
+  const version = firstEnv("WHATSAPP_CLOUD_API_VERSION") || "v20.0";
+  if (!token || !phoneNumberId || !to) throw new Error("Missing Meta WhatsApp Cloud API env vars.");
+
+  const response = await fetch(`https://graph.facebook.com/${version}/${encodeURIComponent(phoneNumberId)}/messages`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to,
+      type: "text",
+      text: { body }
+    })
+  });
+
+  const text = await response.text();
+  if (!response.ok) throw new Error(`Meta WhatsApp failed: ${text.slice(0, 500)}`);
+  const payload = JSON.parse(text) as { messages?: Array<{ id?: string }> };
+  return { provider: "Meta Cloud API", id: payload.messages?.[0]?.id, status: "sent" };
+}
+
+function ensureWhatsAppPrefix(value: string) {
+  if (!value) return "";
+  return value.startsWith("whatsapp:") ? value : `whatsapp:${value}`;
+}
+
+function buildTwilioContentVariables(body: string) {
+  const custom = firstEnv("TWILIO_CONTENT_VARIABLES");
+  if (custom) {
+    try {
+      const parsed = JSON.parse(custom) as Record<string, unknown>;
+      return JSON.stringify(Object.fromEntries(
+        Object.entries(parsed).map(([key, value]) => [key, String(value || " ").trim() || " "])
+      ));
+    } catch {
+      console.warn("TWILIO_CONTENT_VARIABLES is not valid JSON; using daily-news defaults.");
+    }
+  }
+  const compactBody = body.replace(/\s+/g, " ").trim().slice(0, 950) || "Daily news update";
+  return JSON.stringify({
+    "1": compactBody,
+    "2": new Intl.DateTimeFormat("en-IN", {
+      dateStyle: "medium",
+      timeZone: "Asia/Kolkata"
+    }).format(new Date())
+  });
+}
+
+function readXmlTag(xml: string, tag: string) {
+  const match = xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i"));
+  return (match?.[1] || "").replace(/^<!\[CDATA\[/, "").replace(/\]\]>$/, "").trim();
+}
+
+function decodeXml(value: string) {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function cronSecret(req: express.Request) {
+  return String(req.query.secret || req.headers["x-cron-secret"] || req.headers.authorization?.replace(/^Bearer\s+/i, "") || "");
+}
+
+function matchesSecret(actual: string, expected: string) {
+  if (!expected || !actual) return false;
+  const actualBuffer = Buffer.from(actual);
+  const expectedBuffer = Buffer.from(expected);
+  return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+function viteSecretAudit() {
+  const risky = Object.keys(process.env).filter(name => /^VITE_/.test(name) && /(KEY|SECRET|TOKEN|PASSWORD)/i.test(name) && name !== "VITE_SUPABASE_ANON_KEY");
+  return risky.length
+    ? { ok: false, detail: `Possible browser-exposed secrets: ${risky.join(", ")}` }
+    : { ok: true, detail: "No VITE_* secret env vars detected except the public Supabase anon key" };
 }
 
 async function getAccount(req: express.Request, accountId?: string): Promise<Account> {
@@ -347,6 +649,10 @@ async function insertMessage(req: express.Request, conversationId: string, agent
   } catch { return { id: randomUUID() }; }
 }
 
+function shouldShowSourceTrail(memoryCount: number, sources: Array<{ links?: Array<{ title: string; url: string }> }>) {
+  return memoryCount > 0 || sources.some(source => source.links?.length);
+}
+
 function buildSourceTrail(account: Account, memoryCount: number, sources: Array<{ label: string; note?: string; links?: Array<{ title: string; url: string }> }>) {
   const connectorLine = sources.length ? sources.map(source => `${source.label}${source.links?.length ? ` | ${source.links.map(link => link.url).join(" ")}` : ""}`).join("; ") : "none enabled or no connector context used";
   return `\n\n---\nSource Trail\n- Active AI account: ${account.label || account.provider} (${account.model})\n- Learned memory: ${memoryCount} saved pattern(s) considered\n- Connectors checked: ${connectorLine}\n- Source links status: ${sources.some(source => source.links?.length) ? "links included above" : "no link-bearing source used for this reply"}`;
@@ -369,7 +675,17 @@ function errorMessage(error: unknown) {
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const message = errorMessage(error);
-  if (!res.headersSent) res.status(500).json({ error: message });
+  if (!res.headersSent) res.status(500).json({ error: friendlyServerError(message), detail: message });
 });
+
+function friendlyServerError(message: string) {
+  if (/daily shared ai limit/i.test(message)) return message;
+  if (/telegram is not configured/i.test(message)) return "Telegram is not configured yet. Add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in Render Environment.";
+  if (/whatsapp is not configured/i.test(message)) return "WhatsApp is not configured. Telegram is the preferred free automation channel.";
+  if (/api key|unauthorized|401|403/i.test(message)) return "AI provider authentication failed. Check the shared provider key in Render Environment.";
+  if (/quota|billing|429|rate limit/i.test(message)) return "The selected AI provider hit a quota, billing, or rate limit. Try again later or enable a fallback provider.";
+  if (/timeout|timed out|abort/i.test(message)) return "The AI provider took too long to respond. The app will use a fallback provider when one is configured.";
+  return message === "Server error" ? "Something went wrong on the server. Check Render logs for the technical detail." : message;
+}
 
 app.listen(port, () => console.log(`AI Agents listening on http://localhost:${port}`));
