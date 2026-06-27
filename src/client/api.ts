@@ -15,7 +15,13 @@ async function readError(res: Response) {
     await supabase.auth.signOut();
     throw new Error("Your sign-in session expired. Please sign in again.");
   }
-  throw new Error(text || `${res.status} ${res.statusText}`);
+  try {
+    const payload = JSON.parse(text) as { error?: string; detail?: string };
+    throw new Error(payload.error || payload.detail || `${res.status} ${res.statusText}`);
+  } catch (error) {
+    if (error instanceof SyntaxError) throw new Error(text || `${res.status} ${res.statusText}`);
+    throw error;
+  }
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
