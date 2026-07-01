@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Agents Status Guide</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, Segoe UI, Arial, sans-serif; background: #0d1118; color: #eef4ff; }
+    body { margin: 0; padding: 32px; }
+    main { max-width: 980px; margin: 0 auto; }
+    h1 { margin: 0 0 8px; font-size: 34px; }
+    h2 { margin-top: 30px; }
+    p, li { color: #aab8ce; line-height: 1.55; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin: 24px 0; }
+    .card { border: 1px solid #263448; background: #151c27; border-radius: 8px; padding: 16px; }
+    .card strong { display: block; font-size: 20px; margin-bottom: 4px; }
+    code { background: #111827; border: 1px solid #28364c; border-radius: 6px; padding: 2px 6px; }
+    a { color: #8cc7ff; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>AI Agents Status Guide</h1>
+    <p>This page is safe to share with Claude or a teammate. It explains what to check without exposing keys.</p>
+    <section class="grid">
+      <div class="card"><strong>Cold start</strong><span>Render free instances can sleep. First request may take 50+ seconds.</span></div>
+      <div class="card"><strong>Quota</strong><span>Shared AI keys must use per-user daily caps before public sharing.</span></div>
+      <div class="card"><strong>Coder safety</strong><span>Default mode should be <code>CODER_EXECUTION_MODE=draft_only</code>.</span></div>
+      <div class="card"><strong>Automation</strong><span>Telegram is the preferred free daily-news channel. WhatsApp is legacy fallback.</span></div>
+    </section>
+    <h2>Render Environment Checklist</h2>
+    <ul>
+      <li><code>SUPABASE_URL</code>, <code>SUPABASE_ANON_KEY</code>, and <code>SUPABASE_SERVICE_ROLE_KEY</code> are set.</li>
+      <li>At least one shared provider key is set: <code>SHARED_GEMINI_API_KEY</code>, <code>SHARED_GROQ_API_KEY</code>, or <code>SHARED_OPENROUTER_API_KEY</code>.</li>
+      <li><code>SHARED_AI_DAILY_REQUEST_LIMIT</code> and <code>SHARED_AI_DAILY_TOKEN_LIMIT</code> are set.</li>
+      <li><code>DAILY_NEWS_CRON_SECRET</code> is a long random value, not a public/simple word.</li>
+      <li><code>TELEGRAM_BOT_TOKEN</code> and <code>TELEGRAM_CHAT_ID</code> are set for free daily updates.</li>
+      <li><code>CODER_EXECUTION_MODE</code> is <code>draft_only</code> unless you intentionally want server execution.</li>
+    </ul>
+    <h2>Source Quality Domains</h2>
+    <p>For Indian finance and policy answers, prefer: <code>rbi.org.in</code>, <code>sebi.gov.in</code>, <code>nseindia.com</code>, <code>bseindia.com</code>, <code>pib.gov.in</code>, <code>indiabudget.gov.in</code>.</p>
+    <h2>Useful URLs</h2>
+    <ul>
+      <li>App: <a href="/">/</a></li>
+      <li>Health: <a href="/healthz">/healthz</a></li>
+      <li>Daily news cron: <code>/cron/daily-news?secret=YOUR_SECRET</code></li>
+    </ul>
+  </main>
+</body>
+</html>
