@@ -1,6 +1,6 @@
 import type express from "express";
 import { supabaseAdmin } from "../supabase";
-import { executeCoderAction, type CoderActionType, type CoderRiskLevel, type CoderProposal } from "./sandbox";
+import { type CoderActionType, type CoderRiskLevel, type CoderProposal } from "./sandbox";
 
 const RISK_MAP: Record<CoderActionType, CoderRiskLevel> = {
   read_file: "safe",
@@ -20,6 +20,7 @@ type RegisterCoderRoutesOptions = {
 
 export function registerCoderRoutes(app: express.Express, options: RegisterCoderRoutesOptions) {
   const getUserId = options.userId;
+  const executionMode = (process.env.CODER_EXECUTION_MODE || "draft_only").toLowerCase();
 
   app.get("/api/coder/proposals", async (req, res, next) => {
     try {
@@ -58,7 +59,7 @@ export function registerCoderRoutes(app: express.Express, options: RegisterCoder
           risk_level: risk,
           payload,
           description,
-          approved_by_user: risk === "safe",
+          approved_by_user: false,
           expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString()
         })
         .select("*")
@@ -66,8 +67,8 @@ export function registerCoderRoutes(app: express.Express, options: RegisterCoder
 
       if (error) throw error;
 
-      if (risk === "safe") {
-        const result = await executeCoderAction(proposal as CoderProposal);
+      if (risk === "safe" && executionMode === "execute") {
+        const result = await executeAction(proposal as CoderProposal);
         await markExecuted(proposal.id);
         await writeAudit(getUserId(req), proposal as CoderProposal, "auto_executed");
         res.json({ status: "executed", proposal, result });
@@ -95,7 +96,7 @@ export function registerCoderRoutes(app: express.Express, options: RegisterCoder
         .eq("user_id", getUserId(req));
       if (approveError) throw approveError;
 
-      const result = await executeCoderAction(proposal);
+      const result = await finalizeProposal(proposal, executionMode);
       await markExecuted(proposal.id);
       await writeAudit(getUserId(req), proposal, "approved");
       res.json({ status: "executed", result });
@@ -153,6 +154,22 @@ async function markExecuted(proposalId: string) {
     .update({ executed: true })
     .eq("id", proposalId);
   if (error) throw error;
+}
+
+async function finalizeProposal(proposal: CoderProposal, executionMode: string) {
+  if (executionMode === "execute") return executeAction(proposal);
+  return {
+    mode: "draft_only",
+    message: "Coder proposal approved and recorded. Server-side file writes, shell commands, package installs, deletes, and deploys are disabled by default. Turn this proposal into a GitHub issue or PR draft before making changes.",
+    proposalId: proposal.id,
+    actionType: proposal.action_type,
+    riskLevel: proposal.risk_level
+  };
+}
+
+async function executeAction(proposal: CoderProposal) {
+  const { executeCoderAction } = await import("./sandbox");
+  return executeCoderAction(proposal);
 }
 
 async function writeAudit(
